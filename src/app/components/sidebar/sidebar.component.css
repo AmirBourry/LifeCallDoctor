@@ -1,0 +1,25 @@
+.sidebar{
+    height: 100vh;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    background-color: #F7F2FA;
+    color: #49454F;
+    overflow-y: auto;
+    border: none;
+}
+
+.sidebar-button{
+    background-color: #F7F2FA;
+    color: #49454F;
+    border: none;
+    border-radius: 10px;
+    padding: 10px;
+    margin: 10px;
+    cursor: pointer;
+}
+
+.sidebar-button:hover {
+  background-color: #ccb0ff;
+  color: #333;
+}
