@@ -1,0 +1,24 @@
+.container {
+  padding: 24px;
+  background-color: #F7F2FA;
+  display: flex;
+  flex-direction: column;
+  width: 85vw;
+  max-height: 100vh;
+  overflow-y: auto;
+}
+.filter-section {
+  margin-bottom: 24px;
+}
+button[mat-stroked-button] {
+  color: #49454F;
+  border-color: #49454F;
+}
+.active {
+  background-color: #E8DEF8;
+}
+.calls-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}

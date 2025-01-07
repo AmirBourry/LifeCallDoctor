@@ -1,0 +1,25 @@
+<div class="call-item" fxLayout="row" fxLayoutAlign="space-between center">
+  <div fxLayout="row" fxLayoutAlign="start center" fxLayoutGap="16px">
+    <div [class]="'priority-badge priority-' + call.priority">
+      {{call.priority}}
+    </div>
+    <div class="call-info">
+      <div class="call-type">{{call.type}}</div>
+      <div class="call-address">
+        <mat-icon class="location-icon">location_on</mat-icon>
+        {{call.address}}, {{call.city}}
+      </div>
+    </div>
+  </div>
+  <div fxLayout="row" fxLayoutAlign="end center" fxLayoutGap="8px">
+    <div class="call-time">{{call.time}}</div>
+    <div class="call-actions" fxLayout="row" fxLayoutGap="8px">
+      <button mat-mini-fab color="warn">
+        <mat-icon>call_end</mat-icon>
+      </button>
+      <button mat-mini-fab color="primary">
+        <mat-icon>call</mat-icon>
+      </button>
+    </div>
+  </div>
+</div>

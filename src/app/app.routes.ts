@@ -3,21 +3,27 @@ import { DoctorComponent } from './components/doctor/doctor.component';
 import { LoginComponent } from './components/auth/login/login.component';
 import { authGuard } from './guards/auth.guard';
 import { loginGuard } from './guards/login.guard';
+import {CallsComponent} from './components/calls/calls.component';
 
 export const routes: Routes = [
-  { 
-    path: 'login', 
+  {
+    path: 'login',
     component: LoginComponent,
     canActivate: [loginGuard]
   },
-  { 
-    path: 'doctor', 
+  {
+    path: 'doctor',
     component: DoctorComponent,
     canActivate: [authGuard]
   },
-  { 
-    path: '', 
-    redirectTo: '/doctor', 
+  {
+    path: 'doctor/calls',
+    component: CallsComponent,
+    canActivate: [authGuard]
+  },
+  {
+    path: '',
+    redirectTo: '/doctor',
     pathMatch: 'full'
   },
   {

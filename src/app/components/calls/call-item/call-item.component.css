@@ -1,0 +1,67 @@
+.call-item {
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.priority-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 20px;
+}
+.priority-5 {
+  background-color: #f44336;
+}
+.priority-4 {
+  background-color: #ff5722;
+}
+.priority-3 {
+  background-color: #ff9800;
+}
+.priority-2 {
+  background-color: #ff9800;
+}
+.priority-1 {
+  background-color: #ffd700;
+}
+.call-info {
+  display: flex;
+  flex-direction: column;
+}
+.call-type {
+  font-weight: 500;
+  font-size: 16px;
+  color: #49454F;
+}
+.call-address {
+  display: flex;
+  align-items: center;
+  color: #6b6b6b;
+  font-size: 14px;
+}
+.location-icon {
+  font-size: 16px;
+  height: 16px;
+  width: 16px;
+  margin-right: 4px;
+}
+.call-time {
+  color: #49454F;
+  font-weight: 500;
+  margin-right: 16px;
+}
+button[mat-mini-fab] {
+  width: 36px;
+  height: 36px;
+  line-height: 36px;
+}
+mat-icon {
+  font-size: 20px;
+}
