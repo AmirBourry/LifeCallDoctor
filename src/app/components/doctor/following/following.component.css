@@ -1,0 +1,53 @@
+.container {
+  padding: 24px;
+  background-color: #F7F2FA;
+  min-height: calc(100vh - 48px);
+}
+.header {
+  margin-bottom: 16px;
+}
+h1 {
+  margin: 0;
+  color: #49454F;
+}
+.status-indicator {
+  border-radius: 50%;
+  background-color: #ccc;
+}
+.critical .status-indicator {
+  background-color: #f44336;
+}
+.stable .status-indicator {
+  background-color: #4caf50;
+}
+.improving .status-indicator {
+  background-color: #2196f3;
+}
+.vital-signs {
+  margin: 16px 0;
+}
+.vital-sign {
+  text-align: center;
+  padding: 8px;
+  background-color: #F7F2FA;
+  border-radius: 4px;
+}
+.vital-sign .label {
+  font-size: 12px;
+  color: #49454F;
+}
+.vital-sign .value {
+  font-size: 18px;
+  font-weight: 500;
+  margin-top: 4px;
+}
+.divider {
+  margin: 16px 0;
+}
+.last-note {
+  font-size: 14px;
+}
+.last-note p {
+  margin: 8px 0 0 0;
+  color: #49454F;
+}

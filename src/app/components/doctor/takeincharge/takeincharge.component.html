@@ -1,1 +1,40 @@
-<p>takeincharge works!</p>
+<div class="container" fxLayout="column" fxLayoutGap="16px">
+  <div class="header" fxLayout="row" fxLayoutAlign="space-between center">
+    <h1>Prises en charge</h1>
+    <button mat-raised-button color="primary">
+      <mat-icon>add</mat-icon>
+      Nouvelle prise en charge
+    </button>
+  </div>
+
+  <div fxLayout="row wrap" fxLayoutGap="16px grid">
+    <mat-card *ngFor="let patient of patients" fxFlex="calc(33.33% - 16px)" fxFlex.lt-md="calc(50% - 16px)" fxFlex.lt-sm="100%">
+      <mat-card-header>
+        <mat-card-title>{{patient.name}}</mat-card-title>
+        <mat-card-subtitle>{{patient.id}}</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        <mat-list>
+          <mat-list-item>
+            <mat-icon matListIcon>event</mat-icon>
+            <div matLine>Admission: {{patient.admissionDate | date:'dd/MM/yyyy'}}</div>
+          </mat-list-item>
+          <mat-list-item>
+            <mat-icon matListIcon>local_hospital</mat-icon>
+            <div matLine>Service: {{patient.service}}</div>
+          </mat-list-item>
+          <mat-list-item>
+            <mat-icon matListIcon>assignment_ind</mat-icon>
+            <div matLine>Médecin: {{patient.doctor}}</div>
+          </mat-list-item>
+        </mat-list>
+      </mat-card-content>
+      <mat-card-actions align="end">
+        <button mat-button color="primary">DÉTAILS</button>
+        <button mat-button color="warn">CLÔTURER</button>
+      </mat-card-actions>
+    </mat-card>
+  </div>
+
+  <mat-paginator [pageSizeOptions]="[6, 12, 24]" showFirstLastButtons></mat-paginator>
+</div>

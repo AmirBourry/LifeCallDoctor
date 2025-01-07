@@ -1,1 +1,54 @@
-<p>following works!</p>
+<div class="container" fxLayout="column" fxLayoutGap="16px">
+  <div class="header" fxLayout="row" fxLayoutAlign="space-between center">
+    <h1>Suivi des patients</h1>
+    <mat-form-field appearance="outline">
+      <mat-label>Filtrer par statut</mat-label>
+      <mat-select>
+        <mat-option value="all">Tous</mat-option>
+        <mat-option value="critical">Critique</mat-option>
+        <mat-option value="stable">Stable</mat-option>
+        <mat-option value="improving">En amélioration</mat-option>
+      </mat-select>
+    </mat-form-field>
+  </div>
+
+  <div fxLayout="row wrap" fxLayoutGap="16px grid">
+    <mat-card *ngFor="let patient of patients" [ngClass]="patient.status.toLowerCase()"
+              fxFlex="calc(33.33% - 16px)" fxFlex.lt-md="calc(50% - 16px)" fxFlex.lt-sm="100%">
+      <mat-card-header>
+        <div mat-card-avatar class="status-indicator"></div>
+        <mat-card-title>{{patient.name}}</mat-card-title>
+        <mat-card-subtitle>{{patient.status}}</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        <div class="vital-signs" fxLayout="row wrap" fxLayoutGap="16px">
+          <div class="vital-sign" fxFlex="calc(50% - 16px)">
+            <div class="label">Tension</div>
+            <div class="value">{{patient.bloodPressure}}</div>
+          </div>
+          <div class="vital-sign" fxFlex="calc(50% - 16px)">
+            <div class="label">Température</div>
+            <div class="value">{{patient.temperature}}°C</div>
+          </div>
+          <div class="vital-sign" fxFlex="calc(50% - 16px)">
+            <div class="label">Pouls</div>
+            <div class="value">{{patient.heartRate}} bpm</div>
+          </div>
+          <div class="vital-sign" fxFlex="calc(50% - 16px)">
+            <div class="label">SpO2</div>
+            <div class="value">{{patient.spo2}}%</div>
+          </div>
+        </div>
+        <mat-divider class="divider"></mat-divider>
+        <div class="last-note">
+          <strong>Dernière note:</strong>
+          <p>{{patient.lastNote}}</p>
+        </div>
+      </mat-card-content>
+      <mat-card-actions align="end">
+        <button mat-button color="primary">AJOUTER NOTE</button>
+        <button mat-button>HISTORIQUE</button>
+      </mat-card-actions>
+    </mat-card>
+  </div>
+</div>
