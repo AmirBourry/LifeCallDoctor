@@ -1,0 +1,21 @@
+[debug] [2025-01-07T13:25:43.367Z] ----------------------------------------------------------------------
+[debug] [2025-01-07T13:25:43.369Z] Command:       /usr/local/bin/node /usr/local/bin/firebase init
+[debug] [2025-01-07T13:25:43.369Z] CLI Version:   13.29.1
+[debug] [2025-01-07T13:25:43.369Z] Platform:      darwin
+[debug] [2025-01-07T13:25:43.369Z] Node Version:  v20.13.1
+[debug] [2025-01-07T13:25:43.369Z] Time:          Tue Jan 07 2025 14:25:43 GMT+0100 (Central European Standard Time)
+[debug] [2025-01-07T13:25:43.369Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-01-07T13:25:43.372Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-01-07T13:25:43.372Z] > authorizing via signed-in user (damyscus@gmail.com)
+[info] 
+     ######## #### ########  ######## ########     ###     ######  ########
+     ##        ##  ##     ## ##       ##     ##  ##   ##  ##       ##
+     ######    ##  ########  ######   ########  #########  ######  ######
+     ##        ##  ##    ##  ##       ##     ## ##     ##       ## ##
+     ##       #### ##     ## ######## ########  ##     ##  ######  ########
+
+You're about to initialize a Firebase project in this directory:
+
+  /Users/damienstengel/WebstormProjects/LifeCallDoctor
+

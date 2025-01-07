@@ -1,37 +1,31 @@
-import {Component, EventEmitter, Output} from '@angular/core';
-import {FlexModule} from '@ngbracket/ngx-layout';
-import {MatButton} from '@angular/material/button';
-import {MatDivider} from '@angular/material/divider';
-import {Router, RouterLink, RouterLinkActive} from '@angular/router';
+import { Component } from '@angular/core';
+import { RouterLink, RouterLinkActive } from '@angular/router';
+import { MatDivider } from '@angular/material/divider';
+import { FlexModule } from '@ngbracket/ngx-layout';
+import { CommonModule } from '@angular/common';
+import { AuthService } from '../../services/auth/auth.service';
+import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
 
 @Component({
   selector: 'app-sidebar',
+  standalone: true,
   imports: [
-    FlexModule,
-    MatButton,
-    MatDivider,
+    CommonModule,
     RouterLink,
-    RouterLinkActive
+    RouterLinkActive,
+    MatDivider,
+    FlexModule,
+    MatButtonModule,
+    MatIconModule
   ],
   templateUrl: './sidebar.component.html',
-  standalone: true,
-  styleUrl: './sidebar.component.css'
+  styleUrls: ['./sidebar.component.css']
 })
 export class SidebarComponent {
-  public selectedTab = 'Home';
+  constructor(public authService: AuthService) {}
 
-  public tabs = [
-    { name: 'Home', route: 'home' },
-    { name: 'Doctor', route: 'doctor' },
-    { name: 'Doctor Calls', route: 'doctor/calls' },
-    { name: 'Nice Doctor', route: 'nice/doctor' },
-    { name: 'Nice Staff', route: 'nice/staff' },
-    { name: 'Nice EMS', route: 'nice/ems' },
-    { name: 'Lenval Doctor' , route: 'lenval/doctor' },
-    { name: 'Lenval Staff', route: 'lenval/staff' },
-    { name: 'Lenval EMS', route: 'lenval/ems' },
-  ];
-
-  public constructor(public router: Router){}
-
+  logout() {
+    this.authService.logout();
+  }
 }

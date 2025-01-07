@@ -1,24 +1,74 @@
 <div class="sidebar">
-  Médecin
+  <div class="sidebar-content">
+    <!-- Section Médecin -->
+    <div class="sidebar-section">
+      <h3 class="section-title">Médecin</h3>
+      <div fxLayout="column" fxLayoutAlign="start stretch" fxLayoutGap="10px">
+        <button class="sidebar-button" routerLink="/doctor" routerLinkActive="active">
+          <mat-icon>description</mat-icon>
+          Rapports
+        </button>
+        <button class="sidebar-button" routerLink="/doctor/calls" routerLinkActive="active">
+          <mat-icon>call</mat-icon>
+          Appels
+        </button>
+      </div>
+    </div>
 
-  <div fxLayout="column" fxLayoutAlign="space-between center" fxLayoutGap="10px">
-    <button class="sidebar-button"  color="primary" routerLink="/doctor" routerLinkActive="active">Rapports</button>
-    <button class="sidebar-button"  color="primary" routerLink="/doctor/calls">Appels</button>
+    <mat-divider></mat-divider>
+
+    <!-- Section CHU de Nice -->
+    <div class="sidebar-section">
+      <h3 class="section-title">CHU de Nice</h3>
+      <div fxLayout="column" fxLayoutAlign="start stretch" fxLayoutGap="10px">
+        <button class="sidebar-button" routerLink="/nice/doctor" routerLinkActive="active">
+          <mat-icon>local_hospital</mat-icon>
+          Rapports
+        </button>
+        <button class="sidebar-button" routerLink="/nice/staff" routerLinkActive="active">
+          <mat-icon>people</mat-icon>
+          Personnel
+        </button>
+        <button class="sidebar-button" routerLink="/nice/ems" routerLinkActive="active">
+          <mat-icon>emergency</mat-icon>
+          SMUR
+        </button>
+      </div>
+    </div>
+
+    <mat-divider></mat-divider>
+
+    <!-- Section Hopital Lenval -->
+    <div class="sidebar-section">
+      <h3 class="section-title">Hopital Lenval</h3>
+      <div fxLayout="column" fxLayoutAlign="start stretch" fxLayoutGap="10px">
+        <button class="sidebar-button" routerLink="/lenval/doctor" routerLinkActive="active">
+          <mat-icon>local_hospital</mat-icon>
+          Rapports
+        </button>
+        <button class="sidebar-button" routerLink="/lenval/staff" routerLinkActive="active">
+          <mat-icon>people</mat-icon>
+          Personnel
+        </button>
+        <button class="sidebar-button" routerLink="/lenval/ems" routerLinkActive="active">
+          <mat-icon>emergency</mat-icon>
+          SMUR
+        </button>
+      </div>
+    </div>
   </div>
-  <mat-divider></mat-divider>
 
-  CHU de Nice
-  <div fxLayout="column" fxLayoutAlign="space-between center" fxLayoutGap="10px">
-    <button class="sidebar-button"  color="primary" routerLink="/nice/doctor">Rapports</button>
-    <button class="sidebar-button"  color="primary" routerLink="/nice/staff">Personnel</button>
-    <button class="sidebar-button"  color="primary" routerLink="/nice/ems">SMUR</button>
-  </div>
-  <mat-divider></mat-divider>
-
-  Hopital Lenval
-  <div fxLayout="column" fxLayoutAlign="space-between center" fxLayoutGap="10px">
-    <button class="sidebar-button"  color="primary" routerLink="/lenval/doctor">Rapports</button>
-    <button class="sidebar-button"  color="primary" routerLink="/lenval/staff">Personnel</button>
-    <button class="sidebar-button"  color="primary" routerLink="/lenval/ems">SMUR</button>
+  <!-- Section utilisateur -->
+  <div class="user-section">
+    <mat-divider></mat-divider>
+    <div class="user-info" *ngIf="authService.user$ | async as user">
+      <div class="user-details">
+        <mat-icon>account_circle</mat-icon>
+        <span class="user-email">{{ user.email }}</span>
+      </div>
+      <button mat-icon-button class="logout-button" (click)="logout()" title="Se déconnecter">
+        <mat-icon>logout</mat-icon>
+      </button>
+    </div>
   </div>
 </div>
