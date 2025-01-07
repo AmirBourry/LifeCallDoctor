@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import {Component, OnInit} from '@angular/core';
 import {FlexModule} from '@ngbracket/ngx-layout';
 import {MatButton} from '@angular/material/button';
 import {CallItemComponent} from './call-item/call-item.component';
@@ -17,9 +17,8 @@ import {NgForOf} from '@angular/common';
   styleUrl: './calls.component.css'
 })
 
-export class CallsComponent {
+export class CallsComponent implements OnInit {
   activeFilter: 'priority' | 'time' = 'priority';
-
   calls = [
     {
       priority: 5,
@@ -42,89 +41,19 @@ export class CallsComponent {
       city: '06600 Antibes',
       time: '11:00'
     },
-    {
-      priority: 5,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '12:54'
-    },
-    {
-      priority: 2,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '15:02'
-    },
-    {
-      priority: 1,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '11:00'
-    },
-    {
-      priority: 5,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '12:54'
-    },
-    {
-      priority: 2,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '15:02'
-    },
-    {
-      priority: 1,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '11:00'
-    },
-    {
-      priority: 5,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '12:54'
-    },
-    {
-      priority: 2,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '15:02'
-    },
-    {
-      priority: 1,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '11:00'
-    },
-    {
-      priority: 5,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '12:54'
-    },
-    {
-      priority: 2,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '15:02'
-    },
-    {
-      priority: 1,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '11:00'
-    }
   ];
+
+  public ngOnInit() : void {
+    this.filterCalls();
+  }
+
+  public filterCalls() : void {
+    this.calls = this.calls.sort((a, b) => {
+      if (this.activeFilter === 'priority') {
+        return b.priority - a.priority;
+      } else {
+        return a.time.localeCompare(b.time);
+      }
+    });
+  }
 }

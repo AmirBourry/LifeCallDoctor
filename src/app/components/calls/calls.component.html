@@ -1,11 +1,11 @@
 <div class="container" fxLayout="column" fxLayoutAlign="start stretch" fxLayoutGap="16px">
   <div class="filter-section" fxLayout="row" fxLayoutGap="16px">
     <button mat-stroked-button [class.active]="activeFilter === 'priority'"
-            (click)="activeFilter = 'priority'">
+            (click)="activeFilter = 'priority';filterCalls()">
       Trier par priorité
     </button>
     <button mat-stroked-button [class.active]="activeFilter === 'time'"
-            (click)="activeFilter = 'time'">
+            (click)="activeFilter = 'time';filterCalls()">
       Trier par heure
     </button>
   </div>
