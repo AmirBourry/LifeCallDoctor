@@ -1,24 +1,48 @@
 <div class="sidebar">
-  Médecin
+  <div class="section">
+    <h2>Médecin</h2>
 
-  <div fxLayout="column" fxLayoutAlign="space-between center" fxLayoutGap="10px">
-    <button class="sidebar-button"  color="primary" routerLink="/doctor" routerLinkActive="active">Rapports</button>
-    <button class="sidebar-button"  color="primary" routerLink="/doctor/calls">Appels</button>
+    <div class="menu-item" routerLink="/doctor" routerLinkActive="active">
+      <span class="menu-icon">📄</span>
+      <span class="menu-text">Rapports</span>
+      <span class="badge">24</span>
+    </div>
+
+    <div class="menu-item" routerLink="/doctor/calls" routerLinkActive="active">
+      <span class="menu-icon">▶</span>
+      <span class="menu-text">Appels</span>
+    </div>
   </div>
-  <mat-divider></mat-divider>
 
-  CHU de Nice
-  <div fxLayout="column" fxLayoutAlign="space-between center" fxLayoutGap="10px">
-    <button class="sidebar-button"  color="primary" routerLink="/nice/doctor">Rapports</button>
-    <button class="sidebar-button"  color="primary" routerLink="/nice/staff">Personnel</button>
-    <button class="sidebar-button"  color="primary" routerLink="/nice/ems">SMUR</button>
+  <div class="section">
+    <h2>CHU de Nice</h2>
+    <div class="menu-item" routerLink="/nice/doctor" routerLinkActive="active">
+      <span class="menu-icon">📁</span>
+      <span class="menu-text">Rapports</span>
+    </div>
+    <div class="menu-item" routerLink="/nice/staff" routerLinkActive="active">
+      <span class="menu-icon">📁</span>
+      <span class="menu-text">Personnel</span>
+    </div>
+    <div class="menu-item" routerLink="/nice/ems" routerLinkActive="active">
+      <span class="menu-icon">📁</span>
+      <span class="menu-text">SMUR</span>
+    </div>
   </div>
-  <mat-divider></mat-divider>
 
-  Hopital Lenval
-  <div fxLayout="column" fxLayoutAlign="space-between center" fxLayoutGap="10px">
-    <button class="sidebar-button"  color="primary" routerLink="/lenval/doctor">Rapports</button>
-    <button class="sidebar-button"  color="primary" routerLink="/lenval/staff">Personnel</button>
-    <button class="sidebar-button"  color="primary" routerLink="/lenval/ems">SMUR</button>
+  <div class="section">
+    <h2>Hopital Lenval</h2>
+    <div class="menu-item" routerLink="/lenval/doctor" routerLinkActive="active">
+      <span class="menu-icon">📁</span>
+      <span class="menu-text">Rapports</span>
+    </div>
+    <div class="menu-item" routerLink="/lenval/staff" routerLinkActive="active">
+      <span class="menu-icon">📁</span>
+      <span class="menu-text">Personnel</span>
+    </div>
+    <div class="menu-item" routerLink="/lenval/pediatrics" routerLinkActive="active">
+      <span class="menu-icon">📁</span>
+      <span class="menu-text">Pédiatrie</span>
+    </div>
   </div>
 </div>
