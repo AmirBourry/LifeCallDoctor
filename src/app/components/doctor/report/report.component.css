@@ -1,0 +1,19 @@
+.container {
+  padding: 24px;
+  background-color: #F7F2FA;
+  min-height: calc(100vh - 48px);
+}
+.header {
+  margin-bottom: 16px;
+}
+h1 {
+  margin: 0;
+  color: #49454F;
+}
+.search-field {
+  width: 100%;
+  margin-bottom: 16px;
+}
+table {
+  width: 100%;
+}
