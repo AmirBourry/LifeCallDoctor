@@ -11,9 +11,9 @@
       "prefix": "app",
       "architect": {
         "build": {
-          "builder": "@angular-devkit/build-angular:application",
+          "builder": "@angular-devkit/build-angular:browser",
           "options": {
-            "outputPath": "dist/life-call-doctor",
+            "outputPath": "dist/life-call-doctor/browser",
             "index": "src/index.html",
             "browser": "src/main.ts",
             "polyfills": [
