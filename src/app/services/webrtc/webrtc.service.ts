@@ -83,24 +83,8 @@ export class WebRTCService {
       {
         urls: [
           'stun:stun.l.google.com:19302',
-          'stun:stun1.l.google.com:19302',
-          'stun:stun2.l.google.com:19302',
-          'stun:stun3.l.google.com:19302',
-          'stun:stun4.l.google.com:19302'
+          'stun:stun1.l.google.com:19302'
         ]
-      },
-      {
-        // Free TURN server from Xirsys
-        urls: [
-          'turn:turn-server-1.xirsys.com:80?transport=udp',
-          'turn:turn-server-1.xirsys.com:3478?transport=udp',
-          'turn:turn-server-1.xirsys.com:80?transport=tcp',
-          'turn:turn-server-1.xirsys.com:3478?transport=tcp',
-          'turns:turn-server-1.xirsys.com:443?transport=tcp',
-          'turns:turn-server-1.xirsys.com:5349?transport=tcp'
-        ],
-        username: 'YOUR_XIRSYS_USERNAME',
-        credential: 'YOUR_XIRSYS_CREDENTIAL'
       }
     ],
     iceCandidatePoolSize: 10,
@@ -213,6 +197,28 @@ export class WebRTCService {
     }
   }
 
+  private async handleLocalIceCandidate(candidate: RTCIceCandidate): Promise<void> {
+    try {
+      const user = await this.authService.user$.pipe(take(1)).toPromise();
+      if (!user || !this.currentSessionId) return;
+
+      const [caller, callee] = this.currentSessionId.split('_');
+      const targetUserId = user.uid === caller ? callee : caller;
+
+      await this.sendSignalingMessage({
+        type: 'ice-candidate',
+        from: user.uid,
+        to: targetUserId,
+        sessionData: {
+          candidate: candidate.toJSON()
+        },
+        timestamp: new Date()
+      });
+    } catch (error) {
+      console.error('Error handling local ICE candidate:', error);
+    }
+  }
+
   private async initializePeerConnection(localStream: MediaStream): Promise<void> {
     if (this.peerConnection) {
       console.log('Closing existing peer connection');
@@ -221,42 +227,75 @@ export class WebRTCService {
 
     console.log('Initializing new peer connection');
     this.peerConnection = new RTCPeerConnection(this.configuration);
-    
-    // Réduire la qualité vidéo pour améliorer la stabilité
-    localStream.getTracks().forEach(track => {
-      if (track.kind === 'video') {
-        const videoTrack = track as MediaStreamTrack;
-        const settings = videoTrack.getSettings();
-        if (settings.width && settings.height) {
-          videoTrack.applyConstraints({
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-            frameRate: { max: 24 }
-          });
-        }
-      }
-      this.peerConnection!.addTrack(track, localStream);
-    });
 
-    // Mettre à jour immédiatement l'état avec le flux local
-    this.updateCallState({
-      localStream,
-      isInCall: true
-    });
+    this.peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        // Log pour voir le type de candidat ICE
+        console.log('New ICE candidate:', {
+          type: event.candidate.type,         // 'host', 'srflx', ou 'relay'
+          protocol: event.candidate.protocol, // 'udp' ou 'tcp'
+          address: event.candidate.address,   // adresse IP
+          port: event.candidate.port         // port
+        });
+        this.handleLocalIceCandidate(event.candidate);
+      }
+    };
+
+    this.peerConnection.oniceconnectionstatechange = () => {
+      const state = this.peerConnection?.iceConnectionState;
+      console.log('ICE connection state changed:', state);
+      
+      switch (state) {
+        case 'checking':
+          console.log('Checking ICE candidates...');
+          break;
+        case 'connected':
+          console.log('ICE connection established successfully');
+          this.checkStreamsState();
+          break;
+        case 'failed':
+          console.error('ICE connection failed - details:', {
+            iceGatheringState: this.peerConnection?.iceGatheringState,
+            signalingState: this.peerConnection?.signalingState,
+            connectionState: this.peerConnection?.connectionState
+          });
+          this.tryFallbackStunServer();
+          break;
+        case 'disconnected':
+          console.warn('ICE connection disconnected - attempting reconnection');
+          this.tryFallbackStunServer();
+          break;
+      }
+    };
 
     this.peerConnection.ontrack = (event) => {
-      console.log('Received remote track:', event.track.kind, event.streams);
+      console.log('Received remote track:', event.track.kind, {
+        trackId: event.track.id,
+        enabled: event.track.enabled,
+        muted: event.track.muted,
+        readyState: event.track.readyState
+      });
+
       if (event.streams && event.streams[0]) {
-        console.log('Updating call state with remote stream');
         const remoteStream = event.streams[0];
-        
-        // Activer tous les tracks du flux distant
+        console.log('Remote stream details:', {
+          id: remoteStream.id,
+          active: remoteStream.active,
+          tracks: remoteStream.getTracks().map(t => ({
+            kind: t.kind,
+            enabled: t.enabled,
+            muted: t.muted,
+            readyState: t.readyState
+          }))
+        });
+
+        // Activer explicitement les tracks
         remoteStream.getTracks().forEach(track => {
           track.enabled = true;
           console.log(`Remote ${track.kind} track enabled:`, track.enabled);
         });
 
-        // S'assurer que le flux distant est correctement mis à jour
+        // Mettre à jour l'état avec le flux distant
         this.updateCallState({
           remoteStream,
           isInCall: true
@@ -265,47 +304,72 @@ export class WebRTCService {
         // Vérifier l'état des flux
         this.checkStreamsState();
 
-        // Ajouter un gestionnaire d'événements pour les tracks distants
+        // Surveiller les changements de tracks
         remoteStream.onaddtrack = (trackEvent) => {
-          console.log('New remote track added:', trackEvent.track.kind);
+          console.log('New remote track added:', {
+            kind: trackEvent.track.kind,
+            enabled: trackEvent.track.enabled,
+            muted: trackEvent.track.muted
+          });
+        };
+
+        remoteStream.onremovetrack = (trackEvent) => {
+          console.warn('Remote track removed:', {
+            kind: trackEvent.track.kind,
+            enabled: trackEvent.track.enabled,
+            muted: trackEvent.track.muted
+          });
         };
       }
     };
 
-    this.peerConnection.onicecandidate = async (event) => {
-      if (event.candidate) {
-        console.log('New ICE candidate:', event.candidate.type, event.candidate.protocol);
-        const user = await this.authService.user$.pipe(take(1)).toPromise();
-        if (!user || !this.currentSessionId) return;
-
-        const [caller, callee] = this.currentSessionId.split('_');
-        const targetUserId = user.uid === caller ? callee : caller;
-
-        await this.sendSignalingMessage({
-          type: 'ice-candidate',
-          from: user.uid,
-          to: targetUserId,
-          sessionData: {
-            candidate: event.candidate.toJSON()
-          },
-          timestamp: new Date()
+    // Ajouter les tracks avec des contraintes optimisées
+    console.log('Adding local tracks to peer connection');
+    localStream.getTracks().forEach(track => {
+      if (track.kind === 'video') {
+        const videoTrack = track as MediaStreamTrack;
+        console.log('Configuring video track:', {
+          currentSettings: videoTrack.getSettings(),
+          constraints: videoTrack.getConstraints()
         });
-      } else {
-        console.log('ICE candidate gathering completed');
-      }
-    };
 
-    this.peerConnection.onconnectionstatechange = () => {
-      const state = this.peerConnection?.connectionState;
-      console.log('Connection state changed:', state);
-      
-      if (state === 'disconnected' || state === 'failed') {
-        console.log('Connection lost, attempting to reconnect');
-        this.tryFallbackStunServer();
+        videoTrack.applyConstraints({
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { max: 24 }
+        }).then(() => {
+          console.log('Video constraints applied successfully');
+        }).catch(error => {
+          console.warn('Failed to apply video constraints:', error);
+        });
       }
-    };
 
-    this.setupDataChannel();
+      const sender = this.peerConnection!.addTrack(track, localStream);
+      console.log(`Added ${track.kind} track to peer connection`);
+
+      // Configurer les paramètres d'encodage pour la vidéo
+      if (track.kind === 'video') {
+        sender.setParameters({
+          ...sender.getParameters(),
+          degradationPreference: 'maintain-framerate',
+          encodings: [{
+            maxBitrate: 800000,
+            maxFramerate: 24,
+            scaleResolutionDownBy: 1.0
+          }]
+        }).catch(error => {
+          console.warn('Failed to set sender parameters:', error);
+        });
+      }
+    });
+
+    // Mettre à jour l'état avec le flux local
+    this.updateCallState({
+      localStream,
+      isInCall: true
+    });
+
+    console.log('Peer connection initialization completed');
   }
 
   private setupDataChannel(): void {
