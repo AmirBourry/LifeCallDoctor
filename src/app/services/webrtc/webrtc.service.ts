@@ -177,66 +177,52 @@ export class WebRTCService {
 
   private async getLocalStream(): Promise<MediaStream> {
     try {
-      // Obtenir d'abord l'audio seul pour optimiser la qualité audio
-      const audioStream = await navigator.mediaDevices.getUserMedia({
+      // Configuration audio optimisée
+      const audioConstraints = {
         audio: {
-          echoCancellation: {
-            ideal: true
-          },
-          noiseSuppression: {
-            ideal: true
-          },
-          autoGainControl: {
-            ideal: true
-          },
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
           channelCount: 1,
-          sampleRate: {
-            ideal: 48000,
-            min: 44100
-          }
+          sampleRate: 48000,
+          latency: 0,
+          volume: 1.0,
+          // Forcer l'utilisation du microphone
+          deviceId: 'default'
         }
-      });
+      };
 
-      // Puis obtenir la vidéo avec des contraintes plus flexibles
+      // Obtenir l'audio d'abord
+      const audioStream = await navigator.mediaDevices.getUserMedia(audioConstraints)
+        .catch(error => {
+          console.error('Error getting audio stream:', error);
+          // Fallback avec des contraintes minimales
+          return navigator.mediaDevices.getUserMedia({ 
+            audio: true 
+          });
+        });
+
+      // Puis la vidéo
       const videoStream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { 
-            min: 320,
-            ideal: 640,
-            max: 1280
-          },
-          height: { 
-            min: 240,
-            ideal: 480,
-            max: 720
-          },
-          frameRate: { 
-            min: 15,
-            ideal: 24,
-            max: 30
-          },
-          facingMode: 'user'
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 24 }
         }
-      }).catch(error => {
-        console.warn('Failed to get video with ideal constraints, trying fallback:', error);
-        // Fallback avec des contraintes minimales
-        return navigator.mediaDevices.getUserMedia({
-          video: {
-            width: 320,
-            height: 240,
-            frameRate: 15
-          }
-        });
       });
 
-      // Combiner les deux flux
+      // Créer un nouveau flux combiné
       const combinedStream = new MediaStream();
+      
+      // Ajouter et configurer les pistes audio
       audioStream.getAudioTracks().forEach(track => {
         track.enabled = true;
+        console.log('Audio track settings:', track.getSettings());
         combinedStream.addTrack(track);
       });
+
+      // Ajouter les pistes vidéo
       videoStream.getVideoTracks().forEach(track => {
-        track.enabled = true;
         combinedStream.addTrack(track);
       });
 
@@ -312,14 +298,48 @@ export class WebRTCService {
   }
 
   private configureAudioTrack(sender: RTCRtpSender): void {
-    sender.setParameters({
-      ...sender.getParameters(),
-      encodings: [{
+    try {
+      const parameters = sender.getParameters();
+      parameters.encodings = [{
         priority: 'high',
         maxBitrate: 128000,
         networkPriority: 'high'
-      }]
-    }).catch(e => console.warn('Could not set audio parameters:', e));
+      }];
+
+      // Optimiser les paramètres audio sans utiliser les propriétés non supportées
+      const transceiver = this.peerConnection?.getTransceivers()
+        .find(t => t.sender === sender);
+      
+      if (transceiver) {
+        transceiver.setCodecPreferences(
+          RTCRtpSender.getCapabilities('audio')!.codecs
+            .filter(codec => 
+              codec.mimeType.toLowerCase() === 'audio/opus')
+            .map(codec => ({
+              ...codec,
+              clockRate: 48000,
+            }))
+        );
+      }
+
+      sender.setParameters(parameters)
+        .then(() => console.log('Audio parameters set successfully'))
+        .catch(e => console.warn('Could not set audio parameters:', e));
+
+      // Configurer la qualité audio via les contraintes
+      if (sender.track) {
+        sender.track.applyConstraints({
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 48000
+        }).catch(e => console.warn('Could not apply audio constraints:', e));
+      }
+
+    } catch (e) {
+      console.error('Error configuring audio track:', e);
+    }
   }
 
   private configureVideoTrack(sender: RTCRtpSender): void {
@@ -354,10 +374,31 @@ export class WebRTCService {
       if (event.streams && event.streams[0]) {
         const remoteStream = event.streams[0];
         
-        // Activer les tracks immédiatement
-        remoteStream.getTracks().forEach(track => {
+        // Configuration spécifique pour l'audio
+        remoteStream.getAudioTracks().forEach(track => {
           track.enabled = true;
-          console.log(`Remote ${track.kind} track enabled:`, track.enabled);
+          console.log('Remote audio track enabled:', track.enabled);
+          console.log('Remote audio track settings:', track.getSettings());
+          
+          // Optimiser la qualité audio
+          track.applyConstraints({
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1,
+            sampleRate: 48000
+          }).catch(e => console.warn('Could not apply remote audio constraints:', e));
+
+          // Écouter les changements d'état de la piste audio
+          track.onmute = () => {
+            console.log('Remote audio track muted');
+            track.enabled = true;
+          };
+          
+          track.onunmute = () => {
+            console.log('Remote audio track unmuted');
+            track.enabled = true;
+          };
         });
 
         // Mettre à jour l'état
@@ -366,8 +407,8 @@ export class WebRTCService {
           isInCall: true
         });
 
-        // Vérifier la qualité périodiquement
-        this.startQualityCheck();
+        // Vérifier périodiquement l'état des pistes audio
+        this.startAudioCheck(remoteStream);
       }
     };
 
@@ -427,16 +468,35 @@ export class WebRTCService {
     };
   }
 
-  private startQualityCheck(): void {
-    const qualityCheckInterval = setInterval(() => {
+  private startAudioCheck(remoteStream: MediaStream): void {
+    const audioCheckInterval = setInterval(() => {
       if (!this.callStateSubject.value.isInCall) {
-        clearInterval(qualityCheckInterval);
+        clearInterval(audioCheckInterval);
         return;
       }
 
-      this.checkStreamsState();
-      this.checkConnectionState();
-    }, 2000);
+      remoteStream.getAudioTracks().forEach(track => {
+        if (!track.enabled) {
+          console.log('Re-enabling audio track');
+          track.enabled = true;
+        }
+        
+        // Vérifier les statistiques audio
+        if (this.peerConnection) {
+          this.peerConnection.getStats(track).then(stats => {
+            stats.forEach(report => {
+              if (report.type === 'inbound-rtp' && report.kind === 'audio') {
+                console.log('Audio stats:', {
+                  packetsReceived: report.packetsReceived,
+                  packetsLost: report.packetsLost,
+                  jitter: report.jitter
+                });
+              }
+            });
+          });
+        }
+      });
+    }, 1000);
   }
 
   private setupDataChannel(): void {
