@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChildren, QueryList } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
@@ -19,7 +19,6 @@ import {
 } from 'chart.js';
 import { SensorMockService, VitalSigns, ScenarioType } from '../../services/sensor/sensor-mock.service';
 import { Subscription } from 'rxjs';
-import { LayoutService } from '../../services/layout/layout.service';
 import { ChangeDetectorRef } from '@angular/core';
 
 @Component({
@@ -38,8 +37,30 @@ import { ChangeDetectorRef } from '@angular/core';
   styleUrls: ['./sensor-mock.component.css']
 })
 export class SensorMockComponent implements OnInit, OnDestroy {
+  @ViewChildren(BaseChartDirective) charts!: QueryList<BaseChartDirective>;
+  
   currentVitals: VitalSigns | null = null;
   private subscription: Subscription | null = null;
+
+  currentScenarioDescription: string = '';
+  
+  scenarioDescriptions: Record<ScenarioType, string> = {
+    'normal': 'Les constantes vitales sont normales : fréquence cardiaque entre 60-100 BPM, saturation en oxygène > 95%, tension artérielle autour de 120/80 mmHg et température entre 36.5-37.2°C.',
+    
+    'hyperthermia': 'L\'hyperthermie se manifeste par une température corporelle élevée (>39.5°C), accompagnée d\'une tachycardie (>100 BPM), d\'une tension artérielle basse et d\'une saturation en oxygène légèrement diminuée due à l\'augmentation du métabolisme.',
+    
+    'hypothermia': 'L\'hypothermie se caractérise par une température corporelle basse (<35°C), une bradycardie (<50 BPM), une tension artérielle basse et une saturation en oxygène diminuée en raison du ralentissement métabolique.',
+    
+    'hemorrhagic': 'L\'état hémorragique présente une tachycardie compensatoire (>120 BPM), une hypotension sévère (<90 mmHg systolique), une saturation en oxygène basse (<90%) et une température normale à basse due à la perte de sang.',
+    
+    'cardiac_arrest': 'La crise cardiaque se manifeste par une tachycardie sévère (>150 BPM), une hypertension importante (>180/100 mmHg), une saturation en oxygène critique (<85%) et une température normale mais avec des sueurs froides.',
+    
+    'asthma': 'La crise d\'asthme se caractérise par une tachycardie modérée (100-120 BPM), une saturation en oxygène diminuée (<90%) due à la bronchoconstriction, une tension artérielle légèrement élevée et une température normale.',
+    
+    'emergency': 'Situation d\'urgence...',
+    
+    'recovery': 'Phase de récupération...'
+  };
 
   // Configuration des graphiques
   chartOptions: ChartOptions = {
@@ -103,9 +124,10 @@ export class SensorMockComponent implements OnInit, OnDestroy {
     labels: []
   };
 
+  activeScenario: ScenarioType = 'normal';
+
   constructor(
     private readonly sensorService: SensorMockService,
-    private readonly layoutService: LayoutService,
     private readonly cdr: ChangeDetectorRef
   ) {
     // Enregistrer tous les composants nécessaires de Chart.js
@@ -120,17 +142,11 @@ export class SensorMockComponent implements OnInit, OnDestroy {
       Title
     );
 
-    // Initialiser les données du graphique avec des valeurs de test
-    for (let i = 0; i < 30; i++) {
-      this.ecgChartData.labels?.push('');
-      this.ecgChartData.datasets[0].data.push(Math.random() * 40 + 60);
-      this.spo2ChartData.datasets[0].data.push(Math.random() * 5 + 95);
-      this.nibpChartData.datasets[0].data.push(Math.random() * 40 + 80);
-      this.temperatureChartData.datasets[0].data.push(Math.random() * 1 + 36.5);
-    }
-
-    // Masquer la sidebar immédiatement
-    this.layoutService.toggleSidebar(false);
+    // Démarrer le scénario normal par défaut
+    this.sensorService.setScenario('normal');
+    
+    // Initialiser avec la description du scénario normal
+    this.currentScenarioDescription = this.scenarioDescriptions['normal'];
   }
 
   ngOnInit() {
@@ -153,6 +169,13 @@ export class SensorMockComponent implements OnInit, OnDestroy {
     this.updateChartData(this.spo2ChartData, vitals.spo2, maxDataPoints);
     this.updateChartData(this.nibpChartData, vitals.nibp.systolic, maxDataPoints);
     this.updateChartData(this.temperatureChartData, vitals.temperature, maxDataPoints);
+
+    // Forcer la mise à jour de tous les graphiques
+    this.charts?.forEach(chart => {
+      if (chart && chart.chart) {
+        chart.chart.update('none'); // 'none' pour une mise à jour plus rapide
+      }
+    });
   }
 
   private updateChartData(chartData: ChartConfiguration['data'], newValue: number, maxPoints: number) {
@@ -166,12 +189,13 @@ export class SensorMockComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
-    this.layoutService.toggleSidebar(true);
     this.subscription?.unsubscribe();
   }
 
   setScenario(scenario: ScenarioType) {
+    this.activeScenario = scenario;
     this.sensorService.setScenario(scenario);
+    this.currentScenarioDescription = this.scenarioDescriptions[scenario];
   }
 
   injectAnomaly(parameter: keyof VitalSigns, value: number) {

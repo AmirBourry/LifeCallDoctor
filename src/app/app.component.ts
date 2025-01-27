@@ -60,7 +60,7 @@ export class AppComponent {
       this.authService.user$
     ]).pipe(
       map(([url, user]) => {
-        const routesWithoutSidebar = ['/login', '/register', '/nurse'];
+        const routesWithoutSidebar = ['/login', '/register', '/nurse', '/sensors'];
         return !routesWithoutSidebar.includes(url) && user?.role === 'medecin';
       })
     );

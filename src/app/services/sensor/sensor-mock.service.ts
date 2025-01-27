@@ -20,9 +20,10 @@ export interface VitalSigns {
   spo2: number;
   nibp: { systolic: number; diastolic: number };
   temperature: number;
+  scenario: ScenarioType;
 }
 
-export type ScenarioType = 'normal' | 'emergency' | 'recovery';
+export type ScenarioType = 'normal' | 'emergency' | 'recovery' | 'hyperthermia' | 'hypothermia' | 'hemorrhagic' | 'cardiac_arrest' | 'asthma';
 
 @Injectable({
   providedIn: 'root'
@@ -70,53 +71,106 @@ export class SensorMockService {
   }
 
   private generateVitalSigns(): VitalSigns {
-    const baseValues = this.getBaseValuesForScenario();
-
-    return {
-      timestamp: Date.now(),
-      ecg: this.generateValue(baseValues.ecg, 5),
-      spo2: this.generateValue(baseValues.spo2, 1),
-      nibp: {
-        systolic: this.generateValue(baseValues.nibp.systolic, 3),
-        diastolic: this.generateValue(baseValues.nibp.diastolic, 2)
-      },
-      temperature: this.generateValue(baseValues.temperature, 0.1)
-    };
-  }
-
-  private getBaseValuesForScenario() {
+    let vitals: VitalSigns;
+    
     switch (this.currentScenario) {
-      case 'emergency':
-        return {
-          ecg: 120,
-          spo2: 88,
-          nibp: { systolic: 160, diastolic: 100 },
-          temperature: 39.0
+      case 'hyperthermia':
+        vitals = {
+          timestamp: Date.now(),
+          ecg: this.generateValue(100, 130),      // Tachycardie
+          spo2: this.generateValue(94, 96),       // SpO2 légèrement basse
+          nibp: {
+            systolic: this.generateValue(100, 110),
+            diastolic: this.generateValue(60, 70)
+          },
+          temperature: this.generateValue(39.5, 41.0), // Température très élevée
+          scenario: this.currentScenario
         };
-      case 'recovery':
-        return {
-          ecg: 85,
-          spo2: 97,
-          nibp: { systolic: 125, diastolic: 80 },
-          temperature: 37.2
+        break;
+
+      case 'hypothermia':
+        vitals = {
+          timestamp: Date.now(),
+          ecg: this.generateValue(40, 50),        // Bradycardie
+          spo2: this.generateValue(88, 92),       // SpO2 basse
+          nibp: {
+            systolic: this.generateValue(85, 95),
+            diastolic: this.generateValue(50, 60)
+          },
+          temperature: this.generateValue(33.0, 35.0), // Température très basse
+          scenario: this.currentScenario
         };
-      default: // normal
-        return {
-          ecg: 75,
-          spo2: 98,
-          nibp: { systolic: 120, diastolic: 80 },
-          temperature: 37.0
+        break;
+
+      case 'hemorrhagic':
+        vitals = {
+          timestamp: Date.now(),
+          ecg: this.generateValue(120, 150),      // Tachycardie sévère
+          spo2: this.generateValue(85, 90),       // SpO2 très basse
+          nibp: {
+            systolic: this.generateValue(60, 80),  // Hypotension
+            diastolic: this.generateValue(40, 50)
+          },
+          temperature: this.generateValue(36.0, 36.5),
+          scenario: this.currentScenario
+        };
+        break;
+
+      case 'cardiac_arrest':
+        vitals = {
+          timestamp: Date.now(),
+          ecg: this.generateValue(150, 200),      // Tachycardie très sévère
+          spo2: this.generateValue(80, 85),       // SpO2 critique
+          nibp: {
+            systolic: this.generateValue(180, 220), // Hypertension sévère
+            diastolic: this.generateValue(100, 120)
+          },
+          temperature: this.generateValue(36.5, 37.5),
+          scenario: this.currentScenario
+        };
+        break;
+
+      case 'asthma':
+        vitals = {
+          timestamp: Date.now(),
+          ecg: this.generateValue(100, 120),      // Tachycardie modérée
+          spo2: this.generateValue(85, 90),       // SpO2 très basse
+          nibp: {
+            systolic: this.generateValue(130, 150),
+            diastolic: this.generateValue(80, 90)
+          },
+          temperature: this.generateValue(37.0, 37.5),
+          scenario: this.currentScenario
+        };
+        break;
+
+      case 'normal':
+      default:
+        vitals = {
+          timestamp: Date.now(),
+          ecg: this.generateValue(60, 100),
+          spo2: this.generateValue(95, 100),
+          nibp: {
+            systolic: this.generateValue(110, 130),
+            diastolic: this.generateValue(70, 85)
+          },
+          temperature: this.generateValue(36.5, 37.2),
+          scenario: this.currentScenario
         };
     }
+
+    // Envoyer au WebSocket
+    this.socket$.next(vitals);
+
+    return vitals;
   }
 
-  private generateValue(base: number, variance: number): number {
-    return base + (Math.random() - 0.5) * variance;
+  private generateValue(min: number, max: number): number {
+    return Math.random() * (max - min) + min;
   }
 
   private sendVitalSigns(): void {
     const vitalSigns = this.generateVitalSigns();
-    this.socket$.next(vitalSigns);
     this.vitalSignsSubject.next(vitalSigns);
     this.updateHistory(vitalSigns);
   }

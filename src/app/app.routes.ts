@@ -6,6 +6,7 @@ import { ProfileGuard } from './guards/profile.guard';
 import { RegisterComponent } from './components/auth/register/register.component';
 import { LoginComponent } from './components/auth/login/login.component';
 import { NurseViewComponent } from './components/nurse/nurse-view.component';
+import { SensorMockComponent } from './components/sensor-mock/sensor-mock.component';
 
 export const routes: Routes = [
   { 
@@ -16,6 +17,11 @@ export const routes: Routes = [
   {
     path: 'login',
     component: LoginComponent
+  },
+  {
+    path: 'sensors',
+    component: SensorMockComponent,
+    data: { role: 'infirmier' }
   },
   {
     path: 'register',
