@@ -278,37 +278,64 @@ export class WebRTCService {
     console.log('Initializing new peer connection');
     this.peerConnection = new RTCPeerConnection({
       ...this.configuration,
-      // Réduire la taille du buffer ICE pour une meilleure réactivité
       iceCandidatePoolSize: 0
     });
 
-    // Ajouter les tracks avec priorité à l'audio
+    // Configurer les événements avant d'ajouter les tracks
+    this.setupPeerConnectionEvents();
+
+    // Ajouter les tracks une seule fois
+    console.log('Adding tracks to peer connection');
     localStream.getTracks().forEach(track => {
-      if (track.kind === 'audio') {
-        console.log('Adding audio track with high priority');
-        const sender = this.peerConnection!.addTrack(track, localStream);
-        sender.setParameters({
-          ...sender.getParameters(),
-          encodings: [{
-            priority: 'high',
-            maxBitrate: 128000, // 128 kbps pour l'audio
-            networkPriority: 'high'
-          }]
-        }).catch(e => console.warn('Could not set audio parameters:', e));
-      } else {
-        console.log('Adding video track with normal priority');
-        const sender = this.peerConnection!.addTrack(track, localStream);
-        sender.setParameters({
-          ...sender.getParameters(),
-          encodings: [{
-            priority: 'medium',
-            maxBitrate: 500000, // Réduire à 500 kbps pour la vidéo
-            maxFramerate: 24,
-            scaleResolutionDownBy: 1.0
-          }]
-        }).catch(e => console.warn('Could not set video parameters:', e));
+      try {
+        if (track.kind === 'audio') {
+          console.log('Adding audio track');
+          const sender = this.peerConnection!.addTrack(track, localStream);
+          this.configureAudioTrack(sender);
+        } else if (track.kind === 'video') {
+          console.log('Adding video track');
+          const sender = this.peerConnection!.addTrack(track, localStream);
+          this.configureVideoTrack(sender);
+        }
+      } catch (error) {
+        console.error(`Error adding ${track.kind} track:`, error);
       }
     });
+
+    // Mettre à jour l'état
+    this.updateCallState({
+      localStream,
+      isInCall: true
+    });
+
+    console.log('Peer connection initialization completed');
+  }
+
+  private configureAudioTrack(sender: RTCRtpSender): void {
+    sender.setParameters({
+      ...sender.getParameters(),
+      encodings: [{
+        priority: 'high',
+        maxBitrate: 128000,
+        networkPriority: 'high'
+      }]
+    }).catch(e => console.warn('Could not set audio parameters:', e));
+  }
+
+  private configureVideoTrack(sender: RTCRtpSender): void {
+    sender.setParameters({
+      ...sender.getParameters(),
+      encodings: [{
+        priority: 'medium',
+        maxBitrate: 500000,
+        maxFramerate: 24,
+        scaleResolutionDownBy: 1.0
+      }]
+    }).catch(e => console.warn('Could not set video parameters:', e));
+  }
+
+  private setupPeerConnectionEvents(): void {
+    if (!this.peerConnection) return;
 
     this.peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
@@ -319,6 +346,28 @@ export class WebRTCService {
           port: event.candidate.port
         });
         this.handleLocalIceCandidate(event.candidate);
+      }
+    };
+
+    this.peerConnection.ontrack = (event) => {
+      console.log('Received remote track:', event.track.kind);
+      if (event.streams && event.streams[0]) {
+        const remoteStream = event.streams[0];
+        
+        // Activer les tracks immédiatement
+        remoteStream.getTracks().forEach(track => {
+          track.enabled = true;
+          console.log(`Remote ${track.kind} track enabled:`, track.enabled);
+        });
+
+        // Mettre à jour l'état
+        this.updateCallState({
+          remoteStream,
+          isInCall: true
+        });
+
+        // Vérifier la qualité périodiquement
+        this.startQualityCheck();
       }
     };
 
@@ -349,123 +398,6 @@ export class WebRTCService {
       }
     };
 
-    this.peerConnection.ontrack = (event) => {
-      console.log('Received remote track:', event.track.kind);
-      if (event.streams && event.streams[0]) {
-        const remoteStream = event.streams[0];
-        
-        // Activer et configurer les tracks audio immédiatement
-        remoteStream.getAudioTracks().forEach(track => {
-          track.enabled = true;
-          console.log('Remote audio track enabled:', track.enabled);
-          console.log('Remote audio track settings:', track.getSettings());
-        });
-
-        // Mettre à jour l'état avec le flux distant
-        this.updateCallState({
-          remoteStream,
-          isInCall: true
-        });
-
-        // Vérifier périodiquement l'état des tracks audio
-        const audioCheckInterval = setInterval(() => {
-          if (!this.callStateSubject.value.isInCall) {
-            clearInterval(audioCheckInterval);
-            return;
-          }
-          
-          remoteStream.getAudioTracks().forEach(track => {
-            if (!track.enabled) {
-              console.log('Re-enabling audio track');
-              track.enabled = true;
-            }
-          });
-        }, 1000);
-
-        if (event.streams && event.streams[0]) {
-          const remoteStream = event.streams[0];
-          console.log('Remote stream details:', {
-            id: remoteStream.id,
-            active: remoteStream.active,
-            tracks: remoteStream.getTracks().map(t => ({
-              kind: t.kind,
-              enabled: t.enabled,
-              muted: t.muted,
-              readyState: t.readyState
-            }))
-          });
-
-          remoteStream.getTracks().forEach(track => {
-            track.enabled = true;
-            console.log(`Remote ${track.kind} track enabled:`, track.enabled);
-          });
-
-          this.checkStreamsState();
-
-          remoteStream.onaddtrack = (trackEvent) => {
-            console.log('New remote track added:', {
-              kind: trackEvent.track.kind,
-              enabled: trackEvent.track.enabled,
-              muted: trackEvent.track.muted
-            });
-          };
-
-          remoteStream.onremovetrack = (trackEvent) => {
-            console.warn('Remote track removed:', {
-              kind: trackEvent.track.kind,
-              enabled: trackEvent.track.enabled,
-              muted: trackEvent.track.muted
-            });
-          };
-        }
-      }
-    };
-
-    console.log('Adding local tracks to peer connection');
-    localStream.getTracks().forEach(track => {
-      if (track.kind === 'video') {
-        const videoTrack = track as MediaStreamTrack;
-        console.log('Configuring video track:', {
-          currentSettings: videoTrack.getSettings(),
-          constraints: videoTrack.getConstraints()
-        });
-
-        videoTrack.applyConstraints({
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          frameRate: { max: 24 }
-        }).then(() => {
-          console.log('Video constraints applied successfully');
-        }).catch(error => {
-          console.warn('Failed to apply video constraints:', error);
-        });
-      }
-
-      const sender = this.peerConnection!.addTrack(track, localStream);
-      console.log(`Added ${track.kind} track to peer connection`);
-
-      if (track.kind === 'audio') {
-        sender.setParameters({
-          ...sender.getParameters(),
-          encodings: [{
-            maxBitrate: 128000,
-            priority: 'high',
-            networkPriority: 'high'
-          }]
-        }).catch(error => {
-          console.warn('Failed to set audio parameters:', error);
-        });
-      }
-    });
-
-    this.updateCallState({
-      localStream,
-      isInCall: true
-    });
-
-    console.log('Peer connection initialization completed');
-
-    // Ajouter un gestionnaire d'événements pour surveiller la qualité audio
     this.peerConnection.onconnectionstatechange = () => {
       const state = this.peerConnection?.connectionState;
       console.log('Connection state changed:', state);
@@ -493,6 +425,18 @@ export class WebRTCService {
         }, 5000);
       }
     };
+  }
+
+  private startQualityCheck(): void {
+    const qualityCheckInterval = setInterval(() => {
+      if (!this.callStateSubject.value.isInCall) {
+        clearInterval(qualityCheckInterval);
+        return;
+      }
+
+      this.checkStreamsState();
+      this.checkConnectionState();
+    }, 2000);
   }
 
   private setupDataChannel(): void {
