@@ -197,13 +197,36 @@ export class WebRTCService {
         }
       });
 
-      // Puis obtenir la vidéo
+      // Puis obtenir la vidéo avec des contraintes plus flexibles
       const videoStream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          frameRate: { max: 24 }
+          width: { 
+            min: 320,
+            ideal: 640,
+            max: 1280
+          },
+          height: { 
+            min: 240,
+            ideal: 480,
+            max: 720
+          },
+          frameRate: { 
+            min: 15,
+            ideal: 24,
+            max: 30
+          },
+          facingMode: 'user'
         }
+      }).catch(error => {
+        console.warn('Failed to get video with ideal constraints, trying fallback:', error);
+        // Fallback avec des contraintes minimales
+        return navigator.mediaDevices.getUserMedia({
+          video: {
+            width: 320,
+            height: 240,
+            frameRate: 15
+          }
+        });
       });
 
       // Combiner les deux flux
@@ -213,6 +236,7 @@ export class WebRTCService {
         combinedStream.addTrack(track);
       });
       videoStream.getVideoTracks().forEach(track => {
+        track.enabled = true;
         combinedStream.addTrack(track);
       });
 
