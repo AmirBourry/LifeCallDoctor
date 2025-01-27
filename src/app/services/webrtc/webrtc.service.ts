@@ -82,28 +82,25 @@ export class WebRTCService {
     iceServers: [
       {
         urls: [
+          'stun:stun.l.google.com:19302',
           'stun:stun1.l.google.com:19302',
-          'stun:stun2.l.google.com:19302'
+          'stun:stun2.l.google.com:19302',
+          'stun:stun3.l.google.com:19302',
+          'stun:stun4.l.google.com:19302'
         ]
       },
       {
-        // Serveur TURN principal
+        // Free TURN server from Xirsys
         urls: [
-          'turn:openrelay.metered.ca:80?transport=tcp',
-          'turn:openrelay.metered.ca:443?transport=tcp',
-          'turn:openrelay.metered.ca:443'
+          'turn:turn-server-1.xirsys.com:80?transport=udp',
+          'turn:turn-server-1.xirsys.com:3478?transport=udp',
+          'turn:turn-server-1.xirsys.com:80?transport=tcp',
+          'turn:turn-server-1.xirsys.com:3478?transport=tcp',
+          'turns:turn-server-1.xirsys.com:443?transport=tcp',
+          'turns:turn-server-1.xirsys.com:5349?transport=tcp'
         ],
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
-      },
-      {
-        // Serveur TURN de backup
-        urls: [
-          'turn:turn.anyfirewall.com:443?transport=tcp',
-          'turn:turn.anyfirewall.com:443'
-        ],
-        username: 'webrtc',
-        credential: 'webrtc'
+        username: 'YOUR_XIRSYS_USERNAME',
+        credential: 'YOUR_XIRSYS_CREDENTIAL'
       }
     ],
     iceCandidatePoolSize: 10,
@@ -196,69 +193,48 @@ export class WebRTCService {
 
   private async getLocalStream(): Promise<MediaStream> {
     try {
-      // Essayer d'obtenir les permissions
-      const permissions = await navigator.permissions.query({ name: 'camera' as PermissionName });
-      if (permissions.state === 'denied') {
-        throw new Error('PERMISSION_DENIED');
-      }
-
-      // Essayer d'abord avec vidéo et audio
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: 'user'
-          },
-          audio: true
-        });
-        return stream;
-      } catch (videoError) {
-        // Si la vidéo échoue, essayer audio uniquement
-        console.log('Échec de l\'accès à la caméra, tentative audio uniquement');
-        const audioStream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: false
-        });
-        
-        this.updateCallState({
-          isAudioOnly: true,
-          isCameraOff: true
-        });
-        
-        return audioStream;
-      }
-    } catch (error: unknown) {
-      console.error('Erreur lors de l\'accès aux périphériques média:', error);
-      if (
-        (error instanceof Error && error.message === 'PERMISSION_DENIED') || 
-        (error instanceof DOMException && error.name === 'NotAllowedError')
-      ) {
-        throw new Error('PERMISSION_DENIED');
-      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 24 },
+          facingMode: 'user'
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      return stream;
+    } catch (error) {
+      console.error('Error accessing media devices:', error);
       throw error;
     }
   }
 
   private async initializePeerConnection(localStream: MediaStream): Promise<void> {
+    if (this.peerConnection) {
+      console.log('Closing existing peer connection');
+      this.peerConnection.close();
+    }
+
+    console.log('Initializing new peer connection');
     this.peerConnection = new RTCPeerConnection(this.configuration);
     
-    // Forcer l'utilisation des serveurs TURN
-    this.peerConnection.getConfiguration().iceTransportPolicy = 'relay';
-    
-    // Ajouter des contraintes pour forcer l'utilisation de relais
-    this.peerConnection.addTransceiver('video', {
-      direction: 'sendrecv',
-      streams: [localStream]
-    });
-    this.peerConnection.addTransceiver('audio', {
-      direction: 'sendrecv',
-      streams: [localStream]
-    });
-
-    console.log('Adding local tracks to peer connection');
+    // Réduire la qualité vidéo pour améliorer la stabilité
     localStream.getTracks().forEach(track => {
-      console.log('Adding track to peer connection:', track.kind);
+      if (track.kind === 'video') {
+        const videoTrack = track as MediaStreamTrack;
+        const settings = videoTrack.getSettings();
+        if (settings.width && settings.height) {
+          videoTrack.applyConstraints({
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            frameRate: { max: 24 }
+          });
+        }
+      }
       this.peerConnection!.addTrack(track, localStream);
     });
 
@@ -319,43 +295,14 @@ export class WebRTCService {
       }
     };
 
-    this.peerConnection.onicegatheringstatechange = () => {
-      console.log('ICE gathering state changed:', this.peerConnection?.iceGatheringState);
-    };
-
-    this.peerConnection.oniceconnectionstatechange = () => {
-      console.log('ICE connection state changed:', this.peerConnection?.iceConnectionState);
-      if (this.peerConnection?.iceConnectionState === 'failed') {
-        console.log('ICE connection failed, attempting to restart ICE');
-        this.restartIceConnection();
-      }
-    };
-
     this.peerConnection.onconnectionstatechange = () => {
-      console.log('Connection state changed:', this.peerConnection?.connectionState);
       const state = this.peerConnection?.connectionState;
+      console.log('Connection state changed:', state);
       
-      if (state === 'connected') {
-        console.log('Peer connection established successfully');
-        // Forcer une mise à jour de l'état et vérifier les flux
-        const currentState = this.callStateSubject.value;
-        this.updateCallState({
-          ...currentState,
-          isInCall: true
-        });
-        this.checkStreamsState();
-      } else if (state === 'failed') {
-        console.log('Connection failed, attempting to reconnect...');
-        this.restartConnection();
-      } else if (state === 'disconnected') {
-        console.log('Connection disconnected, checking streams...');
-        this.checkStreamsState();
+      if (state === 'disconnected' || state === 'failed') {
+        console.log('Connection lost, attempting to reconnect');
+        this.tryFallbackStunServer();
       }
-    };
-
-    // Ajouter un gestionnaire pour les erreurs de connexion
-    this.peerConnection.onicecandidateerror = (event) => {
-      console.error('ICE candidate error:', event);
     };
 
     this.setupDataChannel();
@@ -525,20 +472,26 @@ export class WebRTCService {
 
         case 'answer':
           console.log('Received answer, current signaling state:', this.peerConnection?.signalingState);
-          if (this.peerConnection?.signalingState === 'have-local-offer') {
-            if (message.sessionData.sdp && message.sessionData.type) {
-              await this.peerConnection.setRemoteDescription(
-                new RTCSessionDescription({
-                  sdp: message.sessionData.sdp,
-                  type: message.sessionData.type
-                })
-              );
-
-              // Traiter les candidats ICE en attente
-              await this.processPendingIceCandidates();
+          if (this.peerConnection) {
+            // Vérifier si nous sommes dans un état valide pour recevoir une réponse
+            if (this.peerConnection.signalingState === 'have-local-offer') {
+              if (message.sessionData.sdp && message.sessionData.type) {
+                await this.peerConnection.setRemoteDescription(
+                  new RTCSessionDescription({
+                    sdp: message.sessionData.sdp,
+                    type: message.sessionData.type
+                  })
+                );
+                console.log('Remote description set successfully');
+                await this.processPendingIceCandidates();
+              }
+            } else {
+              console.warn('Ignoring answer in invalid state:', this.peerConnection.signalingState);
+              // Tenter de récupérer la connexion
+              await this.tryFallbackStunServer();
             }
           } else {
-            console.warn('Invalid signaling state for answer:', this.peerConnection?.signalingState);
+            console.warn('No peer connection when receiving answer');
           }
           break;
 
@@ -548,7 +501,13 @@ export class WebRTCService {
       }
     } catch (error) {
       console.error('Error handling signaling message:', error);
-      throw error;
+      // Tenter de récupérer en cas d'erreur
+      if (error instanceof DOMException && error.name === 'InvalidStateError') {
+        console.log('Invalid state, attempting to restart connection');
+        await this.tryFallbackStunServer();
+      } else {
+        throw error;
+      }
     }
   }
 
@@ -838,32 +797,30 @@ export class WebRTCService {
     }
   }
 
-  private async restartConnection(): Promise<void> {
-    console.log('Attempting to restart connection');
-    if (this.peerConnection) {
-      try {
-        const offer = await this.peerConnection.createOffer({ iceRestart: true });
-        await this.peerConnection.setLocalDescription(offer);
-        
-        const user = await this.authService.user$.pipe(take(1)).toPromise();
-        if (!user || !this.currentSessionId) return;
+  private async tryFallbackStunServer(): Promise<void> {
+    if (!this.peerConnection) return;
 
-        const [caller, callee] = this.currentSessionId.split('_');
-        const targetUserId = user.uid === caller ? callee : caller;
+    console.log('Trying fallback STUN server');
+    
+    // Utiliser un serveur STUN de secours
+    const fallbackConfig = {
+      ...this.configuration,
+      iceServers: [
+        {
+          urls: [
+            'stun:stun.stunprotocol.org:3478',
+            'stun:stun.voip.blackberry.com:3478',
+            'stun:stun.voipgate.com:3478'
+          ]
+        }
+      ]
+    };
 
-        await this.sendSignalingMessage({
-          type: 'offer',
-          from: user.uid,
-          to: targetUserId,
-          sessionData: {
-            sdp: offer.sdp,
-            type: offer.type
-          },
-          timestamp: new Date()
-        });
-      } catch (error) {
-        console.error('Error restarting connection:', error);
-      }
+    try {
+      this.peerConnection.setConfiguration(fallbackConfig);
+      await this.restartIceConnection();
+    } catch (error) {
+      console.error('Error using fallback STUN server:', error);
     }
   }
 
@@ -871,19 +828,29 @@ export class WebRTCService {
     if (!this.peerConnection) return;
 
     try {
-      const user = await this.authService.user$.pipe(take(1)).toPromise();
-      if (!user || !this.currentSessionId) return;
-
       console.log('Restarting ICE connection');
       
-      // Créer une nouvelle offre avec iceRestart: true
-      const offer = await this.peerConnection.createOffer({ iceRestart: true });
+      // Forcer l'utilisation des serveurs TURN
+      const currentConfig = this.peerConnection.getConfiguration();
+      this.peerConnection.setConfiguration({
+        ...currentConfig,
+        iceTransportPolicy: 'relay'
+      });
+
+      const offer = await this.peerConnection.createOffer({ 
+        iceRestart: true,
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+      });
+      
       await this.peerConnection.setLocalDescription(offer);
+
+      const user = await this.authService.user$.pipe(take(1)).toPromise();
+      if (!user || !this.currentSessionId) return;
 
       const [caller, callee] = this.currentSessionId.split('_');
       const targetUserId = user.uid === caller ? callee : caller;
 
-      // Envoyer la nouvelle offre
       await this.sendSignalingMessage({
         type: 'offer',
         from: user.uid,
