@@ -298,18 +298,46 @@ export class WebRTCService {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 22050
         },
         video: isNurse ? {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30 }
+          width: { ideal: 640, max: 854 },
+          height: { ideal: 480, max: 480 },
+          frameRate: { ideal: 15, max: 20 },
+          aspectRatio: 1.333333,
+          facingMode: 'user'
         } : false
       };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      
+      // Appliquer des optimisations supplémentaires aux pistes vidéo
+      if (isNurse) {
+        stream.getVideoTracks().forEach(track => {
+          if ('contentHint' in track) {
+            track.contentHint = 'motion';
+          }
+          // Appliquer des contraintes supplémentaires si possible
+          const capabilities = track.getCapabilities();
+          if (capabilities) {
+            track.applyConstraints({
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              frameRate: { ideal: 15 }
+            }).catch(console.error);
+          }
+        });
+      }
+
       console.log(`Local stream obtained for ${isNurse ? 'nurse' : 'doctor'}:`, 
-        stream.getTracks().map(t => `${t.kind}: ${t.enabled}`));
+        stream.getTracks().map(t => ({
+          kind: t.kind,
+          settings: t.getSettings()
+        }))
+      );
+
       return stream;
     } catch (error) {
       console.error('Error accessing media devices:', error);
@@ -464,16 +492,12 @@ export class WebRTCService {
         }
       };
 
-      // Ajouter les tracks selon le rôle
-    localStream.getTracks().forEach(track => {
-        // Permettre l'audio pour tous les utilisateurs
+      // Ajouter les tracks avec configuration d'encodage
+      localStream.getTracks().forEach(track => {
         if (track.kind === 'audio' || (isNurse && track.kind === 'video')) {
-          console.log(`Adding ${track.kind} track to peer connection`);
           const sender = this.peerConnection!.addTrack(track, localStream);
-          
-          // Configurer l'audio pour une meilleure qualité
-          if (track.kind === 'audio') {
-            this.configureAudioTrack(sender);
+          if (track.kind === 'video') {
+            this.configureVideoEncoding(sender);
           }
         }
       });
@@ -561,6 +585,27 @@ export class WebRTCService {
       }
     } catch (e) {
       console.error('Error configuring video track:', e);
+    }
+  }
+
+  private configureVideoEncoding(sender: RTCRtpSender): void {
+    if ('getParameters' in sender) {
+      const parameters = sender.getParameters();
+      if (!parameters.encodings) {
+        parameters.encodings = [{}];
+      }
+
+      // Configurer les paramètres d'encodage
+      parameters.encodings[0] = {
+        ...parameters.encodings[0],
+        maxBitrate: 500000,
+        maxFramerate: 20,
+        scaleResolutionDownBy: 1.0,
+        priority: 'high'
+      };
+
+      // Appliquer les paramètres
+      sender.setParameters(parameters).catch(console.error);
     }
   }
 
