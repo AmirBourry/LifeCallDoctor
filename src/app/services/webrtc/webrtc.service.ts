@@ -79,13 +79,22 @@ export class WebRTCService {
 
   private readonly configuration: RTCConfiguration = {
     iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
+      { 
+        urls: [
+          'stun:stun1.l.google.com:19302',
+          'stun:stun2.l.google.com:19302',
+          'stun:stun3.l.google.com:19302',
+          'stun:stun4.l.google.com:19302'
+        ]
+      },
       {
-        urls: 'turn:numb.viagenie.ca',
-        username: 'webrtc@live.com',
-        credential: 'muazkh'
+        urls: 'turn:turn.example.com:3478',  // Remplacez par votre serveur TURN
+        username: 'your_username',
+        credential: 'your_password'
       }
-    ]
+    ],
+    iceCandidatePoolSize: 10,
+    iceTransportPolicy: 'all'
   };
 
   private incomingCallSubject = new BehaviorSubject<IncomingCall | null>(null);
@@ -225,7 +234,7 @@ export class WebRTCService {
       this.peerConnection!.addTrack(track, localStream);
     });
 
-    // Mettre à jour l'état avec le flux local immédiatement
+    // Mettre à jour immédiatement l'état avec le flux local
     this.updateCallState({
       localStream,
       isInCall: true
@@ -237,23 +246,26 @@ export class WebRTCService {
         console.log('Updating call state with remote stream');
         const remoteStream = event.streams[0];
         
-        // S'assurer que tous les tracks sont activés
+        // Activer tous les tracks du flux distant
         remoteStream.getTracks().forEach(track => {
           track.enabled = true;
           console.log(`Remote ${track.kind} track enabled:`, track.enabled);
         });
 
+        // Mettre à jour l'état avec le flux distant
         this.updateCallState({
           remoteStream,
           isInCall: true
         });
+
+        // Vérifier que les deux flux sont présents
+        this.checkStreamsState();
       }
     };
 
-    // Rétablir la gestion des candidats ICE
     this.peerConnection.onicecandidate = async (event) => {
       if (event.candidate) {
-        console.log('New ICE candidate:', event.candidate);
+        console.log('New ICE candidate:', event.candidate.type, event.candidate.protocol);
         const user = await this.authService.user$.pipe(take(1)).toPromise();
         if (!user || !this.currentSessionId) return;
 
@@ -269,17 +281,30 @@ export class WebRTCService {
           },
           timestamp: new Date()
         });
+      } else {
+        console.log('ICE candidate gathering completed');
       }
+    };
+
+    this.peerConnection.onicegatheringstatechange = () => {
+      console.log('ICE gathering state:', this.peerConnection?.iceGatheringState);
     };
 
     this.peerConnection.oniceconnectionstatechange = () => {
       console.log('ICE connection state:', this.peerConnection?.iceConnectionState);
+      if (this.peerConnection?.iceConnectionState === 'failed') {
+        console.log('ICE connection failed, trying to restart ICE');
+        this.peerConnection.restartIce();
+      }
     };
 
     this.peerConnection.onconnectionstatechange = () => {
       console.log('Connection state:', this.peerConnection?.connectionState);
       if (this.peerConnection?.connectionState === 'connected') {
         console.log('Peer connection established successfully');
+      } else if (this.peerConnection?.connectionState === 'failed') {
+        console.log('Connection failed, attempting to reconnect...');
+        this.restartConnection();
       }
     };
 
@@ -615,7 +640,12 @@ export class WebRTCService {
 
       console.log('Accepting call from:', callerId);
       this.currentSessionId = sessionId;
+
+      // Obtenir le flux local avant d'initialiser la connexion
       const localStream = await this.getLocalStream();
+      console.log('Local stream obtained:', localStream.getTracks().map(t => t.kind));
+
+      // Initialiser la connexion avec le flux local
       await this.initializePeerConnection(localStream);
 
       await this.updateUserStatus('in-call');
@@ -668,16 +698,75 @@ export class WebRTCService {
     }
   }
 
-  // Ajouter une méthode pour vérifier l'état de la connexion
+  private checkStreamsState(): void {
+    const currentState = this.callStateSubject.value;
+    console.log('Checking streams state:', {
+      hasLocalStream: !!currentState.localStream,
+      hasRemoteStream: !!currentState.remoteStream,
+      localTracks: currentState.localStream?.getTracks().map(t => ({
+        kind: t.kind,
+        enabled: t.enabled,
+        muted: t.muted
+      })),
+      remoteTracks: currentState.remoteStream?.getTracks().map(t => ({
+        kind: t.kind,
+        enabled: t.enabled,
+        muted: t.muted
+      }))
+    });
+
+    if (currentState.localStream && currentState.remoteStream) {
+      console.log('Both streams are present, connection should be established');
+    }
+  }
+
   private checkConnectionState(): void {
     if (this.peerConnection) {
-      console.log({
+      const state = {
         iceConnectionState: this.peerConnection.iceConnectionState,
         connectionState: this.peerConnection.connectionState,
         signalingState: this.peerConnection.signalingState,
         hasLocalStream: !!this.callStateSubject.value.localStream,
-        hasRemoteStream: !!this.callStateSubject.value.remoteStream
-      });
+        hasRemoteStream: !!this.callStateSubject.value.remoteStream,
+        localTracks: this.callStateSubject.value.localStream?.getTracks().length || 0,
+        remoteTracks: this.callStateSubject.value.remoteStream?.getTracks().length || 0
+      };
+      
+      console.log('Connection state:', state);
+
+      if (state.connectionState === 'connected' && (!state.hasLocalStream || !state.hasRemoteStream)) {
+        console.warn('Connection established but streams are missing');
+        this.checkStreamsState();
+      }
+    }
+  }
+
+  private async restartConnection(): Promise<void> {
+    console.log('Attempting to restart connection');
+    if (this.peerConnection) {
+      try {
+        const offer = await this.peerConnection.createOffer({ iceRestart: true });
+        await this.peerConnection.setLocalDescription(offer);
+        
+        const user = await this.authService.user$.pipe(take(1)).toPromise();
+        if (!user || !this.currentSessionId) return;
+
+        const [caller, callee] = this.currentSessionId.split('_');
+        const targetUserId = user.uid === caller ? callee : caller;
+
+        await this.sendSignalingMessage({
+          type: 'offer',
+          from: user.uid,
+          to: targetUserId,
+          sessionData: {
+            sdp: offer.sdp,
+            type: offer.type
+          },
+          timestamp: new Date()
+        });
+      } catch (error) {
+        console.error('Error restarting connection:', error);
+      }
     }
   }
 }
