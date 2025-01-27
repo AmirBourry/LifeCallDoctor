@@ -1,0 +1,23 @@
+<div class="hud-container">
+  <!-- Instructions -->
+  <div class="instructions">
+    <p>Instructions du médecin...</p>
+  </div>
+
+  <!-- Vital Signs -->
+  <div class="vital-signs">
+    <div class="vital-signs-container">
+      <div *ngFor="let sign of vitalSigns" class="vital-sign">
+        <span class="icon">{{sign.icon}}</span>
+        <span class="label">{{sign.label}}</span>
+        <span class="value">: {{sign.value}}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Voice Commands -->
+  <div class="voice-commands">
+    <button class="mic-button">🎤</button>
+    <p>Prise de note vocale...</p>
+  </div>
+</div>

@@ -1,0 +1,107 @@
+<div class="container">
+  <div class="control-panel">
+    <mat-card>
+      <mat-card-header>
+        <mat-card-title>Contrôle des Scénarios</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <div class="scenario-buttons">
+          <button mat-raised-button color="primary" (click)="setScenario('normal')">
+            Scénario Normal
+          </button>
+          <button mat-raised-button color="warn" (click)="setScenario('emergency')">
+            Scénario d'Urgence
+          </button>
+          <button mat-raised-button color="accent" (click)="setScenario('recovery')">
+            Scénario de Récupération
+          </button>
+        </div>
+      </mat-card-content>
+    </mat-card>
+  </div>
+
+  <div class="vitals-display">
+    <mat-card class="vital-card" [ngClass]="{'alert': !isValueNormal('ecg', currentVitals?.ecg || 0)}">
+      <mat-card-header>
+        <mat-card-title>ECG</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <div class="vital-value">{{ currentVitals?.ecg | number:'1.0-0' }} BPM</div>
+        <div class="normal-range">Normal: 60-100 BPM</div>
+        <div class="chart-container">
+          <canvas baseChart
+            [type]="'line'"
+            [data]="ecgChartData"
+            [options]="chartOptions">
+          </canvas>
+        </div>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="vital-card" [ngClass]="{'alert': !isValueNormal('spo2', currentVitals?.spo2 || 0)}">
+      <mat-card-header>
+        <mat-card-title>SpO2</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <div class="vital-value">{{ currentVitals?.spo2 | number:'1.0-0' }}%</div>
+        <div class="normal-range">Normal: 95-100%</div>
+        <div class="chart-container">
+          <canvas baseChart
+            type="line"
+            [data]="spo2ChartData"
+            [options]="chartOptions">
+          </canvas>
+        </div>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="vital-card">
+      <mat-card-header>
+        <mat-card-title>Tension Artérielle</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <div class="vital-value">
+          {{ currentVitals?.nibp?.systolic | number:'1.0-0' }}/{{ currentVitals?.nibp?.diastolic | number:'1.0-0' }} mmHg
+        </div>
+        <div class="normal-range">Normal: 120/80 ±20%</div>
+        <div class="chart-container">
+          <canvas baseChart
+            [data]="nibpChartData"
+            [options]="chartOptions"
+            type="line">
+          </canvas>
+        </div>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="vital-card" [ngClass]="{'alert': !isValueNormal('temperature', currentVitals?.temperature || 0)}">
+      <mat-card-header>
+        <mat-card-title>Température</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <div class="vital-value">{{ currentVitals?.temperature | number:'1.1-1' }}°C</div>
+        <div class="normal-range">Normal: 36.5-37.5°C</div>
+        <div class="chart-container">
+          <canvas baseChart
+            [data]="temperatureChartData"
+            [options]="chartOptions"
+            type="line">
+          </canvas>
+        </div>
+      </mat-card-content>
+    </mat-card>
+  </div>
+
+  <div class="anomaly-controls">
+    <mat-card>
+      <mat-card-header>
+        <mat-card-title>Contrôles d'Anomalies</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <button mat-raised-button color="warn" (click)="simulateHardwareFailure()">
+          Simuler une Panne Matérielle
+        </button>
+      </mat-card-content>
+    </mat-card>
+  </div>
+</div>

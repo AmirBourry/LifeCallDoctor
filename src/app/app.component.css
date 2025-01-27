@@ -1,0 +1,7 @@
+.hide-sidebar app-sidebar {
+  display: none;
+}
+
+.hide-sidebar router-outlet {
+  width: 100vw;
+}
