@@ -87,16 +87,23 @@ export class WebRTCService {
         ]
       },
       {
-        // Serveur TURN public pour les tests
-        urls: 'turn:openrelay.metered.ca:80',
+        // Serveur TURN principal
+        urls: [
+          'turn:openrelay.metered.ca:80?transport=tcp',
+          'turn:openrelay.metered.ca:443?transport=tcp',
+          'turn:openrelay.metered.ca:443'
+        ],
         username: 'openrelayproject',
         credential: 'openrelayproject'
       },
       {
-        // Serveur TURN public pour les tests (backup)
-        urls: 'turn:openrelay.metered.ca:443',
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
+        // Serveur TURN de backup
+        urls: [
+          'turn:turn.anyfirewall.com:443?transport=tcp',
+          'turn:turn.anyfirewall.com:443'
+        ],
+        username: 'webrtc',
+        credential: 'webrtc'
       }
     ],
     iceCandidatePoolSize: 10,
@@ -235,6 +242,19 @@ export class WebRTCService {
 
   private async initializePeerConnection(localStream: MediaStream): Promise<void> {
     this.peerConnection = new RTCPeerConnection(this.configuration);
+    
+    // Forcer l'utilisation des serveurs TURN
+    this.peerConnection.getConfiguration().iceTransportPolicy = 'relay';
+    
+    // Ajouter des contraintes pour forcer l'utilisation de relais
+    this.peerConnection.addTransceiver('video', {
+      direction: 'sendrecv',
+      streams: [localStream]
+    });
+    this.peerConnection.addTransceiver('audio', {
+      direction: 'sendrecv',
+      streams: [localStream]
+    });
 
     console.log('Adding local tracks to peer connection');
     localStream.getTracks().forEach(track => {
@@ -249,7 +269,7 @@ export class WebRTCService {
     });
 
     this.peerConnection.ontrack = (event) => {
-      console.log('Received remote track:', event.track.kind);
+      console.log('Received remote track:', event.track.kind, event.streams);
       if (event.streams && event.streams[0]) {
         console.log('Updating call state with remote stream');
         const remoteStream = event.streams[0];
@@ -260,14 +280,19 @@ export class WebRTCService {
           console.log(`Remote ${track.kind} track enabled:`, track.enabled);
         });
 
-        // Mettre à jour l'état avec le flux distant
+        // S'assurer que le flux distant est correctement mis à jour
         this.updateCallState({
           remoteStream,
           isInCall: true
         });
 
-        // Vérifier que les deux flux sont présents
+        // Vérifier l'état des flux
         this.checkStreamsState();
+
+        // Ajouter un gestionnaire d'événements pour les tracks distants
+        remoteStream.onaddtrack = (trackEvent) => {
+          console.log('New remote track added:', trackEvent.track.kind);
+        };
       }
     };
 
@@ -307,13 +332,30 @@ export class WebRTCService {
     };
 
     this.peerConnection.onconnectionstatechange = () => {
-      console.log('Connection state:', this.peerConnection?.connectionState);
-      if (this.peerConnection?.connectionState === 'connected') {
+      console.log('Connection state changed:', this.peerConnection?.connectionState);
+      const state = this.peerConnection?.connectionState;
+      
+      if (state === 'connected') {
         console.log('Peer connection established successfully');
-      } else if (this.peerConnection?.connectionState === 'failed') {
+        // Forcer une mise à jour de l'état et vérifier les flux
+        const currentState = this.callStateSubject.value;
+        this.updateCallState({
+          ...currentState,
+          isInCall: true
+        });
+        this.checkStreamsState();
+      } else if (state === 'failed') {
         console.log('Connection failed, attempting to reconnect...');
         this.restartConnection();
+      } else if (state === 'disconnected') {
+        console.log('Connection disconnected, checking streams...');
+        this.checkStreamsState();
       }
+    };
+
+    // Ajouter un gestionnaire pour les erreurs de connexion
+    this.peerConnection.onicecandidateerror = (event) => {
+      console.error('ICE candidate error:', event);
     };
 
     this.setupDataChannel();
@@ -753,17 +795,25 @@ export class WebRTCService {
       localTracks: currentState.localStream?.getTracks().map(t => ({
         kind: t.kind,
         enabled: t.enabled,
-        muted: t.muted
+        muted: t.muted,
+        readyState: t.readyState
       })),
       remoteTracks: currentState.remoteStream?.getTracks().map(t => ({
         kind: t.kind,
         enabled: t.enabled,
-        muted: t.muted
+        muted: t.muted,
+        readyState: t.readyState
       }))
     });
 
-    if (currentState.localStream && currentState.remoteStream) {
-      console.log('Both streams are present, connection should be established');
+    // Tenter de réactiver les tracks si nécessaire
+    if (currentState.remoteStream) {
+      currentState.remoteStream.getTracks().forEach(track => {
+        if (!track.enabled) {
+          console.log(`Enabling remote ${track.kind} track`);
+          track.enabled = true;
+        }
+      });
     }
   }
 
