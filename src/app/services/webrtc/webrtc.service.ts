@@ -187,9 +187,26 @@ export class WebRTCService {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 48000,
+          sampleSize: 16,
+          latency: 0.01
         }
       });
+
+      stream.getAudioTracks().forEach(track => {
+        const constraints = track.getConstraints();
+        console.log('Audio track constraints:', constraints);
+        
+        track.applyConstraints({
+          ...constraints,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        });
+      });
+
       return stream;
     } catch (error) {
       console.error('Error accessing media devices:', error);
@@ -226,16 +243,18 @@ export class WebRTCService {
     }
 
     console.log('Initializing new peer connection');
-    this.peerConnection = new RTCPeerConnection(this.configuration);
+    this.peerConnection = new RTCPeerConnection({
+      ...this.configuration,
+      sdpSemantics: 'unified-plan'
+    });
 
     this.peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
-        // Log pour voir le type de candidat ICE
         console.log('New ICE candidate:', {
-          type: event.candidate.type,         // 'host', 'srflx', ou 'relay'
-          protocol: event.candidate.protocol, // 'udp' ou 'tcp'
-          address: event.candidate.address,   // adresse IP
-          port: event.candidate.port         // port
+          type: event.candidate.type,
+          protocol: event.candidate.protocol,
+          address: event.candidate.address,
+          port: event.candidate.port
         });
         this.handleLocalIceCandidate(event.candidate);
       }
@@ -269,61 +288,65 @@ export class WebRTCService {
     };
 
     this.peerConnection.ontrack = (event) => {
-      console.log('Received remote track:', event.track.kind, {
-        trackId: event.track.id,
-        enabled: event.track.enabled,
-        muted: event.track.muted,
-        readyState: event.track.readyState
-      });
-
+      console.log('Received remote track:', event.track.kind);
       if (event.streams && event.streams[0]) {
         const remoteStream = event.streams[0];
-        console.log('Remote stream details:', {
-          id: remoteStream.id,
-          active: remoteStream.active,
-          tracks: remoteStream.getTracks().map(t => ({
-            kind: t.kind,
-            enabled: t.enabled,
-            muted: t.muted,
-            readyState: t.readyState
-          }))
-        });
-
-        // Activer explicitement les tracks
-        remoteStream.getTracks().forEach(track => {
+        
+        remoteStream.getAudioTracks().forEach(track => {
           track.enabled = true;
-          console.log(`Remote ${track.kind} track enabled:`, track.enabled);
+          if (track.getConstraints) {
+            track.applyConstraints({
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            }).catch(e => console.warn('Could not apply audio constraints:', e));
+          }
         });
 
-        // Mettre à jour l'état avec le flux distant
-        this.updateCallState({
-          remoteStream,
-          isInCall: true
-        });
-
-        // Vérifier l'état des flux
-        this.checkStreamsState();
-
-        // Surveiller les changements de tracks
-        remoteStream.onaddtrack = (trackEvent) => {
-          console.log('New remote track added:', {
-            kind: trackEvent.track.kind,
-            enabled: trackEvent.track.enabled,
-            muted: trackEvent.track.muted
+        if (event.streams && event.streams[0]) {
+          const remoteStream = event.streams[0];
+          console.log('Remote stream details:', {
+            id: remoteStream.id,
+            active: remoteStream.active,
+            tracks: remoteStream.getTracks().map(t => ({
+              kind: t.kind,
+              enabled: t.enabled,
+              muted: t.muted,
+              readyState: t.readyState
+            }))
           });
-        };
 
-        remoteStream.onremovetrack = (trackEvent) => {
-          console.warn('Remote track removed:', {
-            kind: trackEvent.track.kind,
-            enabled: trackEvent.track.enabled,
-            muted: trackEvent.track.muted
+          remoteStream.getTracks().forEach(track => {
+            track.enabled = true;
+            console.log(`Remote ${track.kind} track enabled:`, track.enabled);
           });
-        };
+
+          this.updateCallState({
+            remoteStream,
+            isInCall: true
+          });
+
+          this.checkStreamsState();
+
+          remoteStream.onaddtrack = (trackEvent) => {
+            console.log('New remote track added:', {
+              kind: trackEvent.track.kind,
+              enabled: trackEvent.track.enabled,
+              muted: trackEvent.track.muted
+            });
+          };
+
+          remoteStream.onremovetrack = (trackEvent) => {
+            console.warn('Remote track removed:', {
+              kind: trackEvent.track.kind,
+              enabled: trackEvent.track.enabled,
+              muted: trackEvent.track.muted
+            });
+          };
+        }
       }
     };
 
-    // Ajouter les tracks avec des contraintes optimisées
     console.log('Adding local tracks to peer connection');
     localStream.getTracks().forEach(track => {
       if (track.kind === 'video') {
@@ -347,23 +370,20 @@ export class WebRTCService {
       const sender = this.peerConnection!.addTrack(track, localStream);
       console.log(`Added ${track.kind} track to peer connection`);
 
-      // Configurer les paramètres d'encodage pour la vidéo
-      if (track.kind === 'video') {
+      if (track.kind === 'audio') {
         sender.setParameters({
           ...sender.getParameters(),
-          degradationPreference: 'maintain-framerate',
           encodings: [{
-            maxBitrate: 800000,
-            maxFramerate: 24,
-            scaleResolutionDownBy: 1.0
+            maxBitrate: 128000,
+            priority: 'high',
+            networkPriority: 'high'
           }]
         }).catch(error => {
-          console.warn('Failed to set sender parameters:', error);
+          console.warn('Failed to set audio parameters:', error);
         });
       }
     });
 
-    // Mettre à jour l'état avec le flux local
     this.updateCallState({
       localStream,
       isInCall: true
@@ -406,7 +426,6 @@ export class WebRTCService {
       console.log('Setting up signaling handlers for user:', user.uid);
       const rtcSignalingRef = collection(this.firestore, 'rtcSignaling');
       
-      // Vérifier d'abord s'il y a des messages en attente
       const pendingQuery = query(rtcSignalingRef, where('to', '==', user.uid));
       const pendingSnapshot = await getDocs(pendingQuery);
       console.log('Checking pending messages:', pendingSnapshot.docs.length);
@@ -422,7 +441,6 @@ export class WebRTCService {
         }
       }
 
-      // Mettre en place l'écouteur pour les nouveaux messages
       this.signalingUnsubscribe = onSnapshot(
         pendingQuery,
         {
@@ -477,7 +495,6 @@ export class WebRTCService {
             const localStream = await this.getLocalStream();
             await this.initializePeerConnection(localStream);
             
-            // Créer et envoyer l'offre
             const offer = await this.peerConnection!.createOffer();
             await this.peerConnection!.setLocalDescription(offer);
 
@@ -502,7 +519,6 @@ export class WebRTCService {
           }
 
           if (message.sessionData.sdp && message.sessionData.type) {
-            // Vérifier l'état avant de définir la description distante
             if (this.peerConnection?.signalingState === 'stable' || 
                 this.peerConnection?.signalingState === 'have-local-offer') {
               await this.peerConnection!.setRemoteDescription(
@@ -526,7 +542,6 @@ export class WebRTCService {
                 timestamp: new Date()
               });
 
-              // Traiter les candidats ICE en attente
               await this.processPendingIceCandidates();
             } else {
               console.warn('Invalid signaling state for offer:', this.peerConnection?.signalingState);
@@ -537,7 +552,6 @@ export class WebRTCService {
         case 'answer':
           console.log('Received answer, current signaling state:', this.peerConnection?.signalingState);
           if (this.peerConnection) {
-            // Vérifier si nous sommes dans un état valide pour recevoir une réponse
             if (this.peerConnection.signalingState === 'have-local-offer') {
               if (message.sessionData.sdp && message.sessionData.type) {
                 await this.peerConnection.setRemoteDescription(
@@ -551,7 +565,6 @@ export class WebRTCService {
               }
             } else {
               console.warn('Ignoring answer in invalid state:', this.peerConnection.signalingState);
-              // Tenter de récupérer la connexion
               await this.tryFallbackStunServer();
             }
           } else {
@@ -565,7 +578,6 @@ export class WebRTCService {
       }
     } catch (error) {
       console.error('Error handling signaling message:', error);
-      // Tenter de récupérer en cas d'erreur
       if (error instanceof DOMException && error.name === 'InvalidStateError') {
         console.log('Invalid state, attempting to restart connection');
         await this.tryFallbackStunServer();
@@ -618,11 +630,9 @@ export class WebRTCService {
         return;
       }
 
-      // Utiliser un ID unique pour chaque message
       const messageId = `${Date.now()}_${message.from}_${message.to}`;
       const messageDoc = doc(this.firestore, 'rtcSignaling', messageId);
       
-      // Convertir la date en Timestamp Firestore
       const messageWithTimestamp = {
         ...message,
         timestamp: new Date()
@@ -632,7 +642,6 @@ export class WebRTCService {
       await setDoc(messageDoc, messageWithTimestamp);
       console.log('Message sent successfully:', messageId);
 
-      // Vérifier immédiatement que le message a été écrit
       const docSnap = await getDoc(messageDoc);
       if (docSnap.exists()) {
         console.log('Message verified in Firestore:', docSnap.data());
@@ -681,7 +690,6 @@ export class WebRTCService {
         this.signalingUnsubscribe = null;
       }
 
-      // Nettoyer les messages de signalisation
       const user = await this.authService.user$.pipe(take(1)).toPromise();
       if (user) {
         const rtcSignalingRef = collection(this.firestore, 'rtcSignaling');
@@ -753,16 +761,13 @@ export class WebRTCService {
       console.log('Accepting call from:', callerId);
       this.currentSessionId = sessionId;
 
-      // Obtenir le flux local avant d'initialiser la connexion
       const localStream = await this.getLocalStream();
       console.log('Local stream obtained:', localStream.getTracks().map(t => t.kind));
 
-      // Initialiser la connexion avec le flux local
       await this.initializePeerConnection(localStream);
 
       await this.updateUserStatus('in-call');
 
-      // Envoyer l'acceptation
       await this.sendSignalingMessage({
         type: 'call-accepted',
         from: user.uid,
@@ -773,7 +778,6 @@ export class WebRTCService {
 
       this.incomingCallSubject.next(null);
 
-      // Vérifier périodiquement l'état de la connexion
       const checkInterval = setInterval(() => {
         this.checkConnectionState();
         if (!this.callStateSubject.value.isInCall) {
@@ -789,7 +793,6 @@ export class WebRTCService {
 
   rejectCall(): void {
     this.incomingCallSubject.next(null);
-    // Optionnel : envoyer un message de rejet au appelant
   }
 
   private async checkMediaPermissions(): Promise<boolean> {
@@ -829,7 +832,6 @@ export class WebRTCService {
       }))
     });
 
-    // Tenter de réactiver les tracks si nécessaire
     if (currentState.remoteStream) {
       currentState.remoteStream.getTracks().forEach(track => {
         if (!track.enabled) {
@@ -866,7 +868,6 @@ export class WebRTCService {
 
     console.log('Trying fallback STUN server');
     
-    // Utiliser un serveur STUN de secours
     const fallbackConfig = {
       ...this.configuration,
       iceServers: [
@@ -894,7 +895,6 @@ export class WebRTCService {
     try {
       console.log('Restarting ICE connection');
       
-      // Forcer l'utilisation des serveurs TURN
       const currentConfig = this.peerConnection.getConfiguration();
       this.peerConnection.setConfiguration({
         ...currentConfig,
