@@ -7,6 +7,8 @@ import { MatBadgeModule } from '@angular/material/badge';
 import { WebRTCService } from '../../services/webrtc/webrtc.service';
 import { FlexModule } from '@ngbracket/ngx-layout';
 import { Subscription } from 'rxjs';
+import { SensorMockService, VitalSigns } from '../../services/sensor/sensor-mock.service';
+import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
 
 @Component({
   selector: 'app-call-interface',
@@ -55,24 +57,34 @@ import { Subscription } from 'rxjs';
             <div class="wave-bar" *ngFor="let i of [1,2,3,4,5]"></div>
           </div>
         </div>
-
+        <div class="vitals-overlay" *ngIf="!isSensorConnected">
+          <div class="warning-banner sensor-warning" >
+            <mat-icon class="warning-icon">sensors_off</mat-icon>
+            <span class="warning-text">
+              Capteurs déconnectés
+            </span>
+          </div>
+        </div>
         <!-- Vitals Overlay -->
-        <div class="vitals-overlay">
-          <div class="vital-sign">
+        <div class="vitals-overlay" *ngIf="currentVitals && isSensorConnected">
+          <div class="vital-sign" [class.warning]="!isNormalScenario">
             <span class="label">SpO2</span>
-            <span class="value">98%</span>
+            <span class="value">{{currentVitals.spo2 | number:'1.0-0'}}%</span>
           </div>
-          <div class="vital-sign">
+          <div class="vital-sign" [class.warning]="!isNormalScenario">
             <span class="label">BPM</span>
-            <span class="value">72</span>
+            <span class="value">{{currentVitals.ecg | number:'1.0-0'}}</span>
           </div>
-          <div class="vital-sign">
+          <div class="vital-sign" [class.warning]="!isNormalScenario">
             <span class="label">BP</span>
-            <span class="value">120/80</span>
+            <span class="value">{{currentVitals.nibp.systolic | number:'1.0-0'}}/{{currentVitals.nibp.diastolic | number:'1.0-0'}}</span>
           </div>
-          <div class="vital-sign">
+          <div class="vital-sign" [class.warning]="!isNormalScenario">
             <span class="label">Temp</span>
-            <span class="value">37.2°C</span>
+            <span class="value">{{currentVitals.temperature | number:'1.1-1'}}°C</span>
+          </div>
+          <div class="warning-message" *ngIf="!isNormalScenario">
+            ⚠️ Attention : Signes vitaux anormaux, un risque de {{getScenarioLabel(currentVitals.scenario)}} détecté !
           </div>
         </div>
 
@@ -320,14 +332,74 @@ import { Subscription } from 'rxjs';
       50% { transform: scale(1.2); }
       100% { transform: scale(1); }
     }
+
+    .vital-sign.warning {
+      animation: pulse 2s infinite;
+    }
+
+    .warning-message {
+      position: absolute;
+      top: 65px;
+      left: 0;
+      width: 100%;
+      text-align: center;
+      color: white;
+      font-weight: bold;
+      background: rgba(0,0,0,0.6);
+      padding: 5px;
+      border-radius: 12px;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+
+    .sensor-warning {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      border-left: 4px solid #ff9800;
+      color: white;
+      padding: 10px;
+    }
+
+    .sensor-warning .warning-icon {
+      color: white;
+    }
   `]
 })
 export class CallInterfaceComponent implements OnInit, OnDestroy {
   @ViewChild('localVideo') localVideo!: ElementRef<HTMLVideoElement>;
   @ViewChild('remoteVideo') remoteVideo!: ElementRef<HTMLVideoElement>;
   private callStateSubscription?: Subscription;
+  private socket$: WebSocketSubject<any>;
 
-  constructor(public webRTCService: WebRTCService) {}
+  // Vitals
+  currentVitals: VitalSigns | null = null;
+  isNormalScenario: boolean = false;
+  isSensorConnected: boolean = false;
+  lastVitalsUpdate: number = Date.now();
+  vitalsCheckInterval?: any;
+
+  constructor(public webRTCService: WebRTCService) {
+    this.socket$ = webSocket('wss://websocket.chhilif.com/ws');
+      this.socket$.subscribe({
+        next: (data) => {
+          const vitals = data as VitalSigns;
+          this.currentVitals = vitals;
+          this.isNormalScenario = vitals?.scenario === 'normal';
+          this.isSensorConnected = true;
+          this.lastVitalsUpdate = Date.now();
+        }
+      });
+      
+      this.vitalsCheckInterval = setInterval(() => {
+        const timeSinceLastUpdate = Date.now() - this.lastVitalsUpdate;
+        this.isSensorConnected = timeSinceLastUpdate < 5000;
+      }, 1000);
+  }
 
   ngOnInit(): void {
     console.log('CallInterfaceComponent initialized');
@@ -343,6 +415,7 @@ export class CallInterfaceComponent implements OnInit, OnDestroy {
         console.log('Setting remote video stream');
         this.remoteVideo.nativeElement.srcObject = state.remoteStream;
       }
+    
     });
   }
 
@@ -365,5 +438,17 @@ export class CallInterfaceComponent implements OnInit, OnDestroy {
     const minutes = Math.floor(diff / 60000);
     const seconds = Math.floor((diff % 60000) / 1000);
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  }
+
+  getScenarioLabel(scenario: string): string {
+    const scenarios: { [key: string]: string } = {
+      'normal': 'normal',
+      'hyperthermia': 'hyperthermie',
+      'hypothermia': 'hypothermie',
+      'hemorrhagic': 'hemorragie',
+      'cardiac_arrest': 'arret cardiaque',
+      'asthma': 'crise d\'asthme'
+    };
+    return scenarios[scenario] || scenario;
   }
 }

@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable, interval } from 'rxjs';
+import { BehaviorSubject, Observable, interval, Subscription, timer } from 'rxjs';
 import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
 
 export interface VitalHistory {
@@ -53,9 +53,14 @@ export class SensorMockService {
     temperature: { min: 36.5, max: 37.5 }
   };
 
+  private isGenerating = true;
+  private generationSubscription: Subscription | null = null;
+  private generationInterval = 1000; // 1 seconde par défaut
+
   constructor() {
     this.socket$ = webSocket('wss://websocket.chhilif.com/ws');
     this.initializeWebSocket();
+    this.toggleGeneration(true); // Démarrer la génération par défaut
   }
 
   private initializeWebSocket(): void {
@@ -63,10 +68,6 @@ export class SensorMockService {
       next: (data) => this.handleIncomingData(data),
       error: (error) => console.error('WebSocket error:', error),
       complete: () => console.log('WebSocket connection closed')
-    });
-
-    interval(1000).subscribe(() => {
-      this.sendVitalSigns();
     });
   }
 
@@ -176,7 +177,7 @@ export class SensorMockService {
   }
 
   private handleIncomingData(data: any): void {
-    console.log('Received data:', data);
+    //console.log('Received data:', data);
   }
 
   getVitalSigns(): Observable<VitalSigns | null> {
@@ -185,18 +186,6 @@ export class SensorMockService {
 
   setScenario(scenario: ScenarioType): void {
     this.currentScenario = scenario;
-  }
-
-  injectAnomaly(parameter: keyof VitalSigns, value: number): void {
-    const currentValue = this.vitalSignsSubject.value;
-    if (currentValue) {
-      const updatedValue = { ...currentValue, [parameter]: value };
-      this.vitalSignsSubject.next(updatedValue);
-    }
-  }
-
-  simulateHardwareFailure(): void {
-    this.socket$.error(new Error('Hardware failure simulated'));
   }
 
   private updateHistory(vitalSigns: VitalSigns): void {
@@ -233,5 +222,22 @@ export class SensorMockService {
 
   getVitalSignsHistory(): VitalSignsHistory {
     return this.vitalSignsHistory;
+  }
+
+  toggleGeneration(enabled: boolean, interval?: number) {
+    this.isGenerating = enabled;
+    if (interval) {
+      this.generationInterval = interval;
+    }
+    
+    if (this.generationSubscription) {
+      this.generationSubscription.unsubscribe();
+      this.generationSubscription = null;
+    }
+    if (enabled) {
+      this.generationSubscription = timer(0, this.generationInterval).subscribe(() => {
+        this.sendVitalSigns();
+      });
+    }
   }
 }

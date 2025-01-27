@@ -77,10 +77,6 @@
   z-index: 1;
 }
 
-.anomaly-controls {
-  margin-top: 24px;
-}
-
 mat-card {
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -133,4 +129,29 @@ button {
   padding: 16px;
   line-height: 1.5;
   color: #333;
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+mat-card-header {
+  display: flex;
+  align-items: center;
+}
+
+.generation-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.interval-display {
+  min-width: 60px;
+  text-align: right;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+mat-slider {
+  min-width: 150px;
 }

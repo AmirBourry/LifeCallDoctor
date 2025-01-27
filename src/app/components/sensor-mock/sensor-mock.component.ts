@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ViewChildren, QueryList } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChildren, QueryList, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
@@ -6,8 +6,10 @@ import { MatSliderModule } from '@angular/material/slider';
 import { MatSelectModule } from '@angular/material/select';
 import { FormsModule } from '@angular/forms';
 import { BaseChartDirective } from 'ng2-charts';
-import { ChartConfiguration, ChartOptions, Chart } from 'chart.js';
 import {
+  ChartConfiguration, 
+  ChartOptions, 
+  Chart,
   LinearScale,
   CategoryScale,
   PointElement,
@@ -19,7 +21,7 @@ import {
 } from 'chart.js';
 import { SensorMockService, VitalSigns, ScenarioType } from '../../services/sensor/sensor-mock.service';
 import { Subscription } from 'rxjs';
-import { ChangeDetectorRef } from '@angular/core';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 
 @Component({
   selector: 'app-sensor-mock',
@@ -31,7 +33,8 @@ import { ChangeDetectorRef } from '@angular/core';
     MatSliderModule,
     MatSelectModule,
     FormsModule,
-    BaseChartDirective
+    BaseChartDirective,
+    MatSlideToggleModule
   ],
   templateUrl: './sensor-mock.component.html',
   styleUrls: ['./sensor-mock.component.css']
@@ -126,6 +129,9 @@ export class SensorMockComponent implements OnInit, OnDestroy {
 
   activeScenario: ScenarioType = 'normal';
 
+  isGenerating = true;
+  generationInterval = 1000;
+
   constructor(
     private readonly sensorService: SensorMockService,
     private readonly cdr: ChangeDetectorRef
@@ -172,7 +178,7 @@ export class SensorMockComponent implements OnInit, OnDestroy {
 
     // Forcer la mise à jour de tous les graphiques
     this.charts?.forEach(chart => {
-      if (chart && chart.chart) {
+      if (chart?.chart) {
         chart.chart.update('none'); // 'none' pour une mise à jour plus rapide
       }
     });
@@ -198,14 +204,6 @@ export class SensorMockComponent implements OnInit, OnDestroy {
     this.currentScenarioDescription = this.scenarioDescriptions[scenario];
   }
 
-  injectAnomaly(parameter: keyof VitalSigns, value: number) {
-    this.sensorService.injectAnomaly(parameter, value);
-  }
-
-  simulateHardwareFailure() {
-    this.sensorService.simulateHardwareFailure();
-  }
-
   isValueNormal(parameter: string, value: number): boolean {
     const ranges = this.sensorService.NORMAL_RANGES;
     switch (parameter) {
@@ -217,6 +215,18 @@ export class SensorMockComponent implements OnInit, OnDestroy {
         return value >= ranges.temperature.min && value <= ranges.temperature.max;
       default:
         return true;
+    }
+  }
+
+  toggleGeneration(enabled: boolean) {
+    this.isGenerating = enabled;
+    this.sensorService.toggleGeneration(enabled, this.generationInterval);
+  }
+
+  updateGenerationInterval(interval: number) {
+    this.generationInterval = interval;
+    if (this.isGenerating) {
+      this.sensorService.toggleGeneration(true, interval);
     }
   }
 }

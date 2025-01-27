@@ -3,6 +3,20 @@
     <mat-card>
       <mat-card-header>
         <mat-card-title>Contrôle des Scénarios</mat-card-title>
+        <span class="spacer"></span>
+        <div class="generation-controls">
+          Fréquence
+          <mat-slider min="100" max="2000" step="100" [(ngModel)]="generationInterval">
+            <input matSliderThumb [(ngModel)]="generationInterval" (ngModelChange)="updateGenerationInterval($event)">
+          </mat-slider>
+          <span class="interval-display">{{generationInterval}}ms</span>
+          <mat-slide-toggle
+            [checked]="isGenerating"
+            (change)="toggleGeneration($event.checked)"
+            color="primary">
+            Génération des données
+          </mat-slide-toggle>
+        </div>
       </mat-card-header>
       <mat-card-content>
         <div class="scenario-buttons">
@@ -114,19 +128,6 @@
             type="line">
           </canvas>
         </div>
-      </mat-card-content>
-    </mat-card>
-  </div>
-
-  <div class="anomaly-controls">
-    <mat-card>
-      <mat-card-header>
-        <mat-card-title>Contrôles d'Anomalies</mat-card-title>
-      </mat-card-header>
-      <mat-card-content>
-        <button mat-raised-button color="warn" (click)="simulateHardwareFailure()">
-          Simuler une Panne Matérielle
-        </button>
       </mat-card-content>
     </mat-card>
   </div>
