@@ -1,16 +1,33 @@
-<div class="hud-container">
+
+  <app-webrtc-test></app-webrtc-test>
   <!-- Instructions -->
   <div class="instructions">
     <p>Instructions du médecin...</p>
   </div>
 
   <!-- Vital Signs -->
-  <div class="vital-signs">
-    <div class="vital-signs-container">
-      <div *ngFor="let sign of vitalSigns" class="vital-sign">
-        <span class="icon">{{sign.icon}}</span>
-        <span class="label">{{sign.label}}</span>
-        <span class="value">: {{sign.value}}</span>
+  <div class="container">
+    <h2>Moniteur de Signes Vitaux</h2>
+    <div class="vital-signs-grid">
+      <div class="vital-sign-card">
+        <h3>ECG</h3>
+        <p>{{ vitalSigns.ecg | number:'1.1-1' }} bpm</p>
+      </div>
+      <div class="vital-sign-card">
+        <h3>SpO2</h3>
+        <p>{{ vitalSigns.spo2 | number:'1.1-1' }}%</p>
+      </div>
+      <div class="vital-sign-card">
+        <h3>Tension Artérielle</h3>
+        <p>{{ vitalSigns.nibp.systolic | number:'1.0-0' }}/{{ vitalSigns.nibp.diastolic | number:'1.0-0' }} mmHg</p>
+      </div>
+      <div class="vital-sign-card">
+        <h3>Température</h3>
+        <p>{{ vitalSigns.temperature | number:'1.1-1' }}°C</p>
+      </div>
+      <div class="vital-sign-card scenario">
+        <h3>Scénario</h3>
+        <p>{{ vitalSigns.scenario }}</p>
       </div>
     </div>
   </div>
@@ -20,4 +37,4 @@
     <button class="mic-button">🎤</button>
     <p>Prise de note vocale...</p>
   </div>
-</div>
+

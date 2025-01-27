@@ -1,6 +1,11 @@
-import { Component } from '@angular/core';
-import {NgForOf} from '@angular/common';
+import {Component, OnDestroy, OnInit} from '@angular/core';
+import {DecimalPipe, NgForOf} from '@angular/common';
 import { LayoutService } from '../../services/layout/layout.service';
+import {CallInterfaceComponent} from "../calls/call-interface.component";
+import {WebRTCTestComponent} from '../calls/test-webrtc.component';
+import {VitalSignsService} from '../../services/vital-signs.service';
+import {VitalSigns} from '../../vital-signs.interface';
+import {Subscription} from 'rxjs';
 
 interface VitalSign {
   icon: string;
@@ -13,22 +18,44 @@ interface VitalSign {
   templateUrl: './ems.component.html',
   standalone: true,
   imports: [
-    NgForOf
+    NgForOf,
+    CallInterfaceComponent,
+    WebRTCTestComponent,
+    DecimalPipe
   ],
   styleUrls: ['./ems.component.css']
 })
-export class EmsComponent {
+export class EmsComponent implements OnInit, OnDestroy  {
 
-  constructor(private readonly layoutService: LayoutService) {
+  private subscription: Subscription | undefined;
+  vitalSigns: VitalSigns = {
+    timestamp: 0,
+    ecg: 0,
+    spo2: 0,
+    nibp: {
+      systolic: 0,
+      diastolic: 0
+    },
+    temperature: 0,
+    scenario: ''
+  };
+
+  constructor(private readonly layoutService: LayoutService, private vitalSignsService: VitalSignsService) {
     this.layoutService.toggleSidebar(false);
   }
 
-  vitalSigns: VitalSign[] = [
-    { icon: "❤️", label: "BPM", value: "95" },
-    { icon: "🩺", label: "Tension", value: "95" },
-    { icon: "🫀", label: "mmHg", value: "95" },
-    { icon: "🫁", label: "Fréq. resp.", value: "95" },
-    { icon: "💨", label: "SaO2", value: "95" },
-    { icon: "🌡️", label: "Temp.", value: "95" }
-  ];
+  public ngOnInit() {
+    this.subscription = this.vitalSignsService.vitalSigns$.subscribe(
+      (data: VitalSigns) => {
+        this.vitalSigns = data;
+      }
+    );
+  }
+
+  ngOnDestroy() {
+    if (this.subscription) {
+      this.subscription.unsubscribe();
+    }
+    this.vitalSignsService.disconnect();
+  }
 }

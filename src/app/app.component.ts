@@ -5,6 +5,7 @@ import { SidebarComponent } from './components/sidebar/sidebar.component';
 import { filter, map } from 'rxjs/operators';
 import { Observable, combineLatest } from 'rxjs';
 import { AuthService } from './services/auth/auth.service';
+import {VitalSignsService} from './services/vital-signs.service';
 
 @Component({
   selector: 'app-root',
@@ -51,7 +52,7 @@ import { AuthService } from './services/auth/auth.service';
 export class AppComponent {
   showSidebar$: Observable<boolean>;
 
-  constructor(private router: Router, private authService: AuthService) {
+  constructor(private router: Router, private authService: AuthService, private webSocketService: VitalSignsService) {
     this.showSidebar$ = combineLatest([
       this.router.events.pipe(
         filter((event): event is NavigationEnd => event instanceof NavigationEnd),
