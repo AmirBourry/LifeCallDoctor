@@ -307,9 +307,11 @@ export class WebRTCService {
     };
 
     this.peerConnection.onconnectionstatechange = () => {
-      console.log('Connection state changed:', this.peerConnection?.connectionState);
-      if (this.peerConnection?.connectionState === 'failed') {
-        console.log('Connection failed, attempting to reconnect');
+      console.log('Connection state:', this.peerConnection?.connectionState);
+      if (this.peerConnection?.connectionState === 'connected') {
+        console.log('Peer connection established successfully');
+      } else if (this.peerConnection?.connectionState === 'failed') {
+        console.log('Connection failed, attempting to reconnect...');
         this.restartConnection();
       }
     };
@@ -522,14 +524,10 @@ export class WebRTCService {
                 await this.peerConnection.addIceCandidate(
                   new RTCIceCandidate(message.sessionData.candidate)
                 );
-                console.log('Successfully added ICE candidate');
+                console.log('Successfully added ICE candidate:', message.sessionData.candidate.candidate);
               } catch (e) {
-                console.warn('Failed to add ICE candidate:', e);
-                // Si l'ajout échoue, essayer de redémarrer ICE
-                if (this.peerConnection.iceConnectionState === 'failed') {
-                  console.log('ICE connection failed, attempting restart');
-                  await this.restartIceConnection();
-                }
+                console.warn('Failed to add ICE candidate, queuing for later:', e);
+                this.pendingIceCandidates.push(message.sessionData.candidate);
               }
             }
           }
@@ -814,33 +812,36 @@ export class WebRTCService {
   }
 
   private async restartIceConnection(): Promise<void> {
-    console.log('Attempting to restart ICE connection');
-    if (this.peerConnection) {
-      try {
-        // Créer une nouvelle offre avec iceRestart: true
-        const offer = await this.peerConnection.createOffer({ iceRestart: true });
-        await this.peerConnection.setLocalDescription(offer);
+    if (!this.peerConnection) return;
 
-        const user = await this.authService.user$.pipe(take(1)).toPromise();
-        if (!user || !this.currentSessionId) return;
+    try {
+      const user = await this.authService.user$.pipe(take(1)).toPromise();
+      if (!user || !this.currentSessionId) return;
 
-        const [caller, callee] = this.currentSessionId.split('_');
-        const targetUserId = user.uid === caller ? callee : caller;
+      console.log('Restarting ICE connection');
+      
+      // Créer une nouvelle offre avec iceRestart: true
+      const offer = await this.peerConnection.createOffer({ iceRestart: true });
+      await this.peerConnection.setLocalDescription(offer);
 
-        // Envoyer la nouvelle offre
-        await this.sendSignalingMessage({
-          type: 'offer',
-          from: user.uid,
-          to: targetUserId,
-          sessionData: {
-            sdp: offer.sdp,
-            type: offer.type
-          },
-          timestamp: new Date()
-        });
-      } catch (error) {
-        console.error('Error restarting ICE:', error);
-      }
+      const [caller, callee] = this.currentSessionId.split('_');
+      const targetUserId = user.uid === caller ? callee : caller;
+
+      // Envoyer la nouvelle offre
+      await this.sendSignalingMessage({
+        type: 'offer',
+        from: user.uid,
+        to: targetUserId,
+        sessionData: {
+          sdp: offer.sdp,
+          type: offer.type
+        },
+        timestamp: new Date()
+      });
+
+      console.log('ICE restart offer sent');
+    } catch (error) {
+      console.error('Error restarting ICE connection:', error);
     }
   }
 }
