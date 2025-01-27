@@ -63,6 +63,7 @@ export class WebRTCService {
   private currentSessionId: string | null = null;
   private signalingUnsubscribe: (() => void) | null = null;
   private pendingCandidates: RTCIceCandidate[] = [];
+  private pendingIceCandidates: RTCIceCandidateInit[] = [];
 
   private callStateSubject = new BehaviorSubject<CallState>({
     isInCall: false,
@@ -400,7 +401,6 @@ export class WebRTCService {
       switch (message.type) {
         case 'call-request':
           console.log('Processing call request from:', message.from);
-          // Vérifier si nous ne sommes pas déjà en appel
           if (!this.callStateSubject.value.isInCall) {
             this.incomingCallSubject.next({
               sessionId: `${message.from}_${user.uid}`,
@@ -408,22 +408,16 @@ export class WebRTCService {
               callerName: message.sessionData.callerName || 'Unknown'
             });
             console.log('Incoming call set:', this.incomingCallSubject.value);
-          } else {
-            console.log('Already in call, ignoring request');
           }
           break;
 
         case 'call-accepted':
           console.log('Call accepted by:', message.from);
-          const localStream = await this.getLocalStream();
-          await this.initializePeerConnection(localStream);
+          if (!this.peerConnection) {
+            const localStream = await this.getLocalStream();
+            await this.initializePeerConnection(localStream);
+          }
           
-          this.updateCallState({
-            isInCall: true,
-            localStream,
-            callStartTime: new Date()
-          });
-
           // Créer et envoyer l'offre
           const offer = await this.peerConnection!.createOffer();
           await this.peerConnection!.setLocalDescription(offer);
@@ -441,7 +435,12 @@ export class WebRTCService {
           break;
 
         case 'offer':
-          console.log('Received offer, setting remote description');
+          console.log('Received offer');
+          if (!this.peerConnection) {
+            const localStream = await this.getLocalStream();
+            await this.initializePeerConnection(localStream);
+          }
+
           if (message.sessionData.sdp && message.sessionData.type) {
             await this.peerConnection!.setRemoteDescription(
               new RTCSessionDescription({
@@ -450,9 +449,23 @@ export class WebRTCService {
               })
             );
 
-            console.log('Creating answer');
+            console.log('Remote description set, creating answer');
             const answer = await this.peerConnection!.createAnswer();
             await this.peerConnection!.setLocalDescription(answer);
+
+            // Traiter les candidats ICE en attente après avoir établi les descriptions
+            console.log('Processing pending ICE candidates:', this.pendingIceCandidates.length);
+            while (this.pendingIceCandidates.length > 0) {
+              const candidate = this.pendingIceCandidates.shift();
+              if (candidate) {
+                try {
+                  await this.peerConnection!.addIceCandidate(new RTCIceCandidate(candidate));
+                  console.log('Successfully added pending ICE candidate');
+                } catch (e) {
+                  console.warn('Failed to add pending ICE candidate:', e);
+                }
+              }
+            }
 
             await this.sendSignalingMessage({
               type: 'answer',
@@ -468,26 +481,47 @@ export class WebRTCService {
           break;
 
         case 'answer':
-          console.log('Received answer, setting remote description');
-          if (message.sessionData.sdp && message.sessionData.type) {
-            await this.peerConnection!.setRemoteDescription(
+          console.log('Received answer');
+          if (message.sessionData.sdp && message.sessionData.type && this.peerConnection) {
+            await this.peerConnection.setRemoteDescription(
               new RTCSessionDescription({
                 sdp: message.sessionData.sdp,
                 type: message.sessionData.type
               })
             );
+
+            // Traiter les candidats ICE en attente après avoir établi les descriptions
+            console.log('Processing pending ICE candidates:', this.pendingIceCandidates.length);
+            while (this.pendingIceCandidates.length > 0) {
+              const candidate = this.pendingIceCandidates.shift();
+              if (candidate) {
+                try {
+                  await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                  console.log('Successfully added pending ICE candidate');
+                } catch (e) {
+                  console.warn('Failed to add pending ICE candidate:', e);
+                }
+              }
+            }
           }
           break;
 
         case 'ice-candidate':
           console.log('Received ICE candidate');
           if (message.sessionData.candidate) {
-            try {
-              await this.peerConnection!.addIceCandidate(
-                new RTCIceCandidate(message.sessionData.candidate)
-              );
-            } catch (e) {
-              console.error('Error adding received ice candidate:', e);
+            if (!this.peerConnection || !this.peerConnection.remoteDescription) {
+              console.log('Queuing ICE candidate for later');
+              this.pendingIceCandidates.push(message.sessionData.candidate);
+            } else {
+              try {
+                await this.peerConnection.addIceCandidate(
+                  new RTCIceCandidate(message.sessionData.candidate)
+                );
+                console.log('Successfully added ICE candidate');
+              } catch (e) {
+                console.warn('Failed to add ICE candidate, queuing for later:', e);
+                this.pendingIceCandidates.push(message.sessionData.candidate);
+              }
             }
           }
           break;
@@ -554,7 +588,7 @@ export class WebRTCService {
 
   async endCall(): Promise<void> {
     try {
-      this.pendingCandidates = [];
+      this.pendingIceCandidates = [];
       if (this.peerConnection) {
         this.peerConnection.close();
         this.peerConnection = null;
@@ -770,3 +804,4 @@ export class WebRTCService {
     }
   }
 }
+
