@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable, take, distinctUntilChanged } from 'rxjs';
+import { BehaviorSubject, Observable, take, distinctUntilChanged, combineLatest } from 'rxjs';
 import {
   Firestore,
   collection,
@@ -14,6 +14,8 @@ import {
   getDoc
 } from '@angular/fire/firestore';
 import { AuthService } from '../auth/auth.service';
+import { MatDialog, MatDialogRef } from '@angular/material/dialog';
+import { CallingDialogComponent } from '../../components/calls/calling-dialog.component';
 
 export interface OnlineUser {
   id: string;
@@ -21,6 +23,9 @@ export interface OnlineUser {
   role: 'medecin' | 'infirmier';
   status: 'online' | 'in-call' | 'offline';
   lastSeen: Date;
+  nom: string;
+  prenom: string;
+  specialite?: string;
 }
 
 export interface CallState {
@@ -32,16 +37,23 @@ export interface CallState {
   isAudioOnly: boolean;
   remotePeerName: string | null;
   callStartTime: Date | null;
+  isRemoteSpeaking: boolean;
 }
 
 export interface IncomingCall {
   sessionId: string;
   callerId: string;
   callerName: string;
+  callerRole: string;
+}
+
+export interface RemoteUserInfo {
+  name: string;
+  role: string;
 }
 
 interface RTCSignalingMessage {
-  type: 'offer' | 'answer' | 'ice-candidate' | 'call-request' | 'call-accepted';
+  type: 'offer' | 'answer' | 'ice-candidate' | 'call-request' | 'call-accepted' | 'call-rejected';
   from: string;
   to: string;
   sessionData: {
@@ -49,8 +61,15 @@ interface RTCSignalingMessage {
     type?: RTCSdpType;
     candidate?: RTCIceCandidateInit;
     callerName?: string;
+    callerRole?: string;
   };
   timestamp: Date;
+}
+
+interface MediaPermissionStatus {
+  video: boolean;
+  audio: boolean;
+  error?: string;
 }
 
 @Injectable({
@@ -73,7 +92,8 @@ export class WebRTCService {
     isCameraOff: false,
     isAudioOnly: false,
     remotePeerName: null,
-    callStartTime: null
+    callStartTime: null,
+    isRemoteSpeaking: false
   });
 
   readonly callState$ = this.callStateSubject.asObservable();
@@ -96,9 +116,16 @@ export class WebRTCService {
   private incomingCallSubject = new BehaviorSubject<IncomingCall | null>(null);
   readonly incomingCall$ = this.incomingCallSubject.asObservable();
 
+  private remoteStream = new BehaviorSubject<MediaStream | null>(null);
+  private remoteUserInfo$ = new BehaviorSubject<RemoteUserInfo | null>(null);
+  private callDuration$ = new BehaviorSubject<string>('00:00');
+  private callTimer: any;
+  private activeDialog: MatDialogRef<any> | null = null;
+
   constructor(
     private firestore: Firestore,
-    private authService: AuthService
+    private authService: AuthService,
+    private dialog: MatDialog
   ) {
     console.log('WebRTCService constructor');
     
@@ -107,7 +134,7 @@ export class WebRTCService {
       console.log('Auth state changed in WebRTCService:', user?.uid);
       if (user) {
         console.log('Setting up signaling handlers for user:', user.uid);
-        this.setupSignalingHandlers();
+    this.setupSignalingHandlers();
       } else {
         if (this.signalingUnsubscribe) {
           console.log('Cleaning up signaling handler');
@@ -128,26 +155,147 @@ export class WebRTCService {
       isCameraOff: false,
       isAudioOnly: false,
       remotePeerName: null,
-      callStartTime: null
+      callStartTime: null,
+      isRemoteSpeaking: false
     });
     this.incomingCallSubject.next(null);
   }
 
   getOnlineUsers(): Observable<OnlineUser[]> {
-    const usersRef = collection(this.firestore, 'users');
-    const onlineUsersQuery = query(usersRef, where('status', 'in', ['online', 'in-call']));
-
     return new Observable<OnlineUser[]>(observer => {
-      const unsubscribe = onSnapshot(onlineUsersQuery, (snapshot) => {
-        const users = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        } as OnlineUser));
-        observer.next(users);
+      const personnelRef = collection(this.firestore, 'personnel');
+      
+      const userSub = this.authService.user$.subscribe(currentUser => {
+        if (!currentUser) {
+          observer.next([]);
+          return;
+        }
+
+        console.log('Current user:', currentUser);
+
+        const snapshotSub = onSnapshot(personnelRef, async (snapshot) => {
+          const users = await Promise.all(snapshot.docs.map(async doc => {
+            const personnelData = doc.data();
+            console.log('Personnel data for', doc.id, ':', personnelData);
+            
+            return {
+              id: doc.id,
+              name: personnelData['name'] || '',
+              role: personnelData['role'] as 'medecin' | 'infirmier',
+              nom: personnelData['nom'] || '',
+              prenom: personnelData['prenom'] || '',
+              specialite: personnelData['specialite'],
+              status: personnelData['isAvailable'] ? 'online' : 'offline',
+              lastSeen: personnelData['lastActive']
+            } as OnlineUser;
+          }));
+
+          // Filtrer les utilisateurs selon le rôle de l'utilisateur courant
+          const filteredUsers = users.filter(user => {
+            // Ne pas afficher l'utilisateur courant
+            if (user.id === currentUser.uid) {
+              console.log('Filtering out current user:', user);
+              return false;
+            }
+
+            // Vérifier si l'utilisateur est disponible
+            const isAvailable = user.status === 'online';
+            console.log('User availability check:', user.nom, isAvailable);
+
+            // Si l'utilisateur est un médecin, ne montrer que les infirmiers disponibles
+            if (currentUser.role === 'medecin') {
+              return user.role === 'infirmier' && isAvailable;
+            }
+            
+            // Si l'utilisateur est un infirmier, ne montrer que les médecins disponibles
+            if (currentUser.role === 'infirmier') {
+              return user.role === 'medecin' && isAvailable;
+            }
+
+            return false;
+          });
+
+          console.log('Filtered users:', filteredUsers);
+          observer.next(filteredUsers);
+        });
+
+        return () => {
+          snapshotSub();
+          userSub.unsubscribe();
+        };
+      });
+    });
+  }
+
+  public async checkAndRequestPermissions(): Promise<MediaPermissionStatus> {
+    try {
+      // Vérifier si les permissions sont déjà accordées
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const hasExistingPermissions = devices.some(device => device.label !== '');
+
+      if (!hasExistingPermissions) {
+        console.log('Requesting media permissions...');
+        // Demander les permissions explicitement
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true
+        });
+        
+        // Arrêter immédiatement le stream de test
+        stream.getTracks().forEach(track => track.stop());
+        
+        return { video: true, audio: true };
+      }
+
+      // Vérifier les permissions individuellement
+      const videoPermission = await navigator.permissions.query({ name: 'camera' as PermissionName });
+      const audioPermission = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+
+      return {
+        video: videoPermission.state === 'granted',
+        audio: audioPermission.state === 'granted'
+      };
+    } catch (error: unknown) {
+      console.error('Error checking permissions:', error);
+      return {
+        video: false,
+        audio: false,
+        error: error instanceof Error ? error.message : 'Une erreur inconnue est survenue'
+      };
+    }
+  }
+
+  private async getLocalStream(): Promise<MediaStream> {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 480, max: 720 },
+          frameRate: { ideal: 24, max: 30 },
+          facingMode: 'user'
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
       });
 
-      return () => unsubscribe();
-    });
+      // Vérifier que les tracks sont bien activés
+      stream.getTracks().forEach(track => {
+        console.log(`Track ${track.kind} enabled:`, track.enabled);
+        track.enabled = true;
+      });
+
+      return stream;
+    } catch (error: unknown) {
+      console.error('Error accessing media devices:', error);
+      throw new Error(
+        `Impossible d'accéder aux périphériques média: ${
+          error instanceof Error ? error.message : 'Erreur inconnue'
+        }`
+      );
+    }
   }
 
   async startCall(targetUserId: string): Promise<void> {
@@ -155,82 +303,76 @@ export class WebRTCService {
       const user = await this.authService.user$.pipe(take(1)).toPromise();
       if (!user) throw new Error('User not authenticated');
 
-      console.log('Starting call to:', targetUserId);
-      this.currentSessionId = `${user.uid}_${targetUserId}`;
+      // Afficher le dialogue d'appel en cours
+      this.activeDialog = this.dialog.open(CallingDialogComponent, {
+        data: {
+          callerName: `${user.nom} ${user.prenom}`,
+          callerRole: user.role,
+          isOutgoing: true
+        },
+        disableClose: true,
+        width: '400px'
+      });
 
-      // Envoyer une demande d'appel
+      // Gérer la fermeture du dialogue (annulation de l'appel)
+      this.activeDialog.afterClosed().subscribe(async (result) => {
+        if (!result) {
+          await this.cancelCall(targetUserId);
+        }
+      });
+
+      // Envoyer la demande d'appel
       await this.sendSignalingMessage({
         type: 'call-request',
         from: user.uid,
         to: targetUserId,
         sessionData: {
-          callerName: user.displayName || 'Médecin'
+          callerName: `${user.nom} ${user.prenom}`,
+          callerRole: user.role
         },
         timestamp: new Date()
       });
 
     } catch (error) {
       console.error('Error starting call:', error);
-      this.endCall();
+      this.closeActiveDialog();
     }
   }
 
-  private async getLocalStream(): Promise<MediaStream> {
-    try {
-      // Configuration audio optimisée
-      const audioConstraints = {
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 48000,
-          latency: 0,
-          volume: 1.0,
-          // Forcer l'utilisation du microphone
-          deviceId: 'default'
-        }
-      };
+  private async handleIncomingCall(message: RTCSignalingMessage): Promise<void> {
+    const user = await this.authService.user$.pipe(take(1)).toPromise();
+    if (!user) return;
 
-      // Obtenir l'audio d'abord
-      const audioStream = await navigator.mediaDevices.getUserMedia(audioConstraints)
-        .catch(error => {
-          console.error('Error getting audio stream:', error);
-          // Fallback avec des contraintes minimales
-          return navigator.mediaDevices.getUserMedia({ 
-            audio: true 
-          });
-        });
+    const sessionId = `${message.from}_${user.uid}`;
 
-      // Puis la vidéo
-      const videoStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          frameRate: { ideal: 24 }
-        }
-      });
+    // Fermer tout dialogue actif existant
+    this.closeActiveDialog();
 
-      // Créer un nouveau flux combiné
-      const combinedStream = new MediaStream();
-      
-      // Ajouter et configurer les pistes audio
-      audioStream.getAudioTracks().forEach(track => {
-        track.enabled = true;
-        console.log('Audio track settings:', track.getSettings());
-        combinedStream.addTrack(track);
-      });
+    // Afficher le dialogue d'appel entrant
+    this.activeDialog = this.dialog.open(CallingDialogComponent, {
+      data: {
+        callerName: message.sessionData.callerName || 'Unknown',
+        callerRole: message.sessionData.callerRole || 'Unknown',
+        isOutgoing: false
+      },
+      disableClose: true,
+      width: '400px'
+    });
 
-      // Ajouter les pistes vidéo
-      videoStream.getVideoTracks().forEach(track => {
-        combinedStream.addTrack(track);
-      });
+    this.activeDialog.afterClosed().subscribe(async (accepted) => {
+      if (accepted) {
+        await this.acceptCall(sessionId, message.from);
+      } else {
+        await this.rejectCall();
+      }
+    });
 
-      return combinedStream;
-    } catch (error) {
-      console.error('Error accessing media devices:', error);
-      throw error;
-    }
+    this.incomingCallSubject.next({
+      sessionId: sessionId,
+      callerId: message.from,
+      callerName: message.sessionData.callerName || 'Unknown',
+      callerRole: message.sessionData.callerRole || 'Unknown'
+    });
   }
 
   private async handleLocalIceCandidate(candidate: RTCIceCandidate): Promise<void> {
@@ -343,15 +485,54 @@ export class WebRTCService {
   }
 
   private configureVideoTrack(sender: RTCRtpSender): void {
-    sender.setParameters({
-      ...sender.getParameters(),
-      encodings: [{
-        priority: 'medium',
-        maxBitrate: 500000,
-        maxFramerate: 24,
+    try {
+      const parameters = sender.getParameters();
+      parameters.encodings = [{
+        priority: 'high',
+        maxBitrate: 2500000, // Augmenter le bitrate pour une meilleure qualité
+        maxFramerate: 30,
         scaleResolutionDownBy: 1.0
-      }]
-    }).catch(e => console.warn('Could not set video parameters:', e));
+      }];
+
+      sender.setParameters(parameters)
+        .then(() => console.log('Video parameters set successfully'))
+        .catch(e => console.warn('Could not set video parameters:', e));
+
+      if (sender.track) {
+        sender.track.enabled = true;
+        console.log('Video track enabled:', sender.track.enabled);
+      }
+    } catch (e) {
+      console.error('Error configuring video track:', e);
+    }
+  }
+
+  private setupAudioAnalyzer(stream: MediaStream): void {
+    const audioContext = new AudioContext();
+    const analyser = audioContext.createAnalyser();
+    const microphone = audioContext.createMediaStreamSource(stream);
+    microphone.connect(analyser);
+    analyser.fftSize = 256;
+    
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    
+    const checkAudioLevel = () => {
+      if (!this.callStateSubject.value.isInCall) return;
+      
+      analyser.getByteFrequencyData(dataArray);
+      const average = dataArray.reduce((a, b) => a + b) / bufferLength;
+      
+      const isSpeaking = average > 30; // Ajuster ce seuil selon vos besoins
+      
+      if (this.callStateSubject.value.isRemoteSpeaking !== isSpeaking) {
+        this.updateCallState({ isRemoteSpeaking: isSpeaking });
+      }
+      
+      requestAnimationFrame(checkAudioLevel);
+    };
+    
+    checkAudioLevel();
   }
 
   private setupPeerConnectionEvents(): void {
@@ -374,6 +555,11 @@ export class WebRTCService {
       if (event.streams && event.streams[0]) {
         const remoteStream = event.streams[0];
         
+        // Configurer l'analyseur audio pour le flux distant
+        if (event.track.kind === 'audio') {
+          this.setupAudioAnalyzer(remoteStream);
+        }
+
         // Configuration spécifique pour l'audio
         remoteStream.getAudioTracks().forEach(track => {
           track.enabled = true;
@@ -587,12 +773,7 @@ export class WebRTCService {
         case 'call-request':
           console.log('Processing call request from:', message.from);
           if (!this.callStateSubject.value.isInCall) {
-            this.incomingCallSubject.next({
-              sessionId: `${message.from}_${user.uid}`,
-              callerId: message.from,
-              callerName: message.sessionData.callerName || 'Unknown'
-            });
-            console.log('Incoming call set:', this.incomingCallSubject.value);
+            this.handleIncomingCall(message);
           }
           break;
 
@@ -620,34 +801,34 @@ export class WebRTCService {
 
         case 'offer':
           console.log('Received offer, current signaling state:', this.peerConnection?.signalingState);
-          if (!this.peerConnection) {
-            const localStream = await this.getLocalStream();
-            await this.initializePeerConnection(localStream);
-          }
+    if (!this.peerConnection) {
+      const localStream = await this.getLocalStream();
+      await this.initializePeerConnection(localStream);
+    }
 
           if (message.sessionData.sdp && message.sessionData.type) {
             if (this.peerConnection?.signalingState === 'stable' || 
                 this.peerConnection?.signalingState === 'have-local-offer') {
-              await this.peerConnection!.setRemoteDescription(
-                new RTCSessionDescription({
-                  sdp: message.sessionData.sdp,
-                  type: message.sessionData.type
-                })
-              );
+            await this.peerConnection!.setRemoteDescription(
+              new RTCSessionDescription({
+                sdp: message.sessionData.sdp,
+                type: message.sessionData.type
+              })
+            );
 
-              const answer = await this.peerConnection!.createAnswer();
-              await this.peerConnection!.setLocalDescription(answer);
+            const answer = await this.peerConnection!.createAnswer();
+            await this.peerConnection!.setLocalDescription(answer);
 
-              await this.sendSignalingMessage({
-                type: 'answer',
-                from: user.uid,
-                to: message.from,
-                sessionData: {
-                  sdp: answer.sdp,
-                  type: answer.type
-                },
-                timestamp: new Date()
-              });
+            await this.sendSignalingMessage({
+              type: 'answer',
+              from: user.uid,
+              to: message.from,
+              sessionData: {
+                sdp: answer.sdp,
+                type: answer.type
+              },
+              timestamp: new Date()
+            });
 
               await this.processPendingIceCandidates();
             } else {
@@ -660,13 +841,13 @@ export class WebRTCService {
           console.log('Received answer, current signaling state:', this.peerConnection?.signalingState);
           if (this.peerConnection) {
             if (this.peerConnection.signalingState === 'have-local-offer') {
-              if (message.sessionData.sdp && message.sessionData.type) {
+          if (message.sessionData.sdp && message.sessionData.type) {
                 await this.peerConnection.setRemoteDescription(
-                  new RTCSessionDescription({
-                    sdp: message.sessionData.sdp,
-                    type: message.sessionData.type
-                  })
-                );
+              new RTCSessionDescription({
+                sdp: message.sessionData.sdp,
+                type: message.sessionData.type
+              })
+            );
                 console.log('Remote description set successfully');
                 await this.processPendingIceCandidates();
               }
@@ -681,6 +862,12 @@ export class WebRTCService {
 
         case 'ice-candidate':
           await this.handleIceCandidate(message);
+          break;
+
+        case 'call-rejected':
+          console.log('Call rejected by:', message.from);
+          this.incomingCallSubject.next(null);
+          this.currentSessionId = null;
           break;
       }
     } catch (error) {
@@ -764,10 +951,10 @@ export class WebRTCService {
   private async updateUserStatus(status: 'online' | 'in-call' | 'offline'): Promise<void> {
     const user = await this.authService.user$.pipe(take(1)).toPromise();
     if (user) {
-      const userDoc = doc(this.firestore, 'users', user.uid);
-      await updateDoc(userDoc, {
-        status,
-        lastSeen: new Date()
+      const personnelDoc = doc(this.firestore, 'personnel', user.uid);
+      await updateDoc(personnelDoc, {
+        isAvailable: status === 'online',
+        lastActive: new Date()
       });
     }
   }
@@ -816,10 +1003,12 @@ export class WebRTCService {
         isCameraOff: false,
         isAudioOnly: false,
         remotePeerName: null,
-        callStartTime: null
+        callStartTime: null,
+        isRemoteSpeaking: false
       });
 
       await this.updateUserStatus('online');
+      this.stopCallTimer();
 
     } catch (error) {
       console.error('Error ending call:', error);
@@ -862,6 +1051,10 @@ export class WebRTCService {
 
   async acceptCall(sessionId: string, callerId: string): Promise<void> {
     try {
+      // S'assurer que le dialogue est fermé avant de continuer
+      this.closeActiveDialog();
+      this.incomingCallSubject.next(null); // Réinitialiser l'état d'appel entrant
+
       const user = await this.authService.user$.pipe(take(1)).toPromise();
       if (!user) throw new Error('User not authenticated');
 
@@ -892,32 +1085,18 @@ export class WebRTCService {
         }
       }, 1000);
 
+      this.startCallTimer();
+
     } catch (error) {
       console.error('Error accepting call:', error);
+      this.closeActiveDialog();
       this.endCall();
     }
   }
 
   rejectCall(): void {
+    this.closeActiveDialog();
     this.incomingCallSubject.next(null);
-  }
-
-  private async checkMediaPermissions(): Promise<boolean> {
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const hasVideoInput = devices.some(device => device.kind === 'videoinput');
-      const hasAudioInput = devices.some(device => device.kind === 'audioinput');
-
-      if (!hasVideoInput && !hasAudioInput) {
-        console.warn('Aucun périphérique média détecté');
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      console.error('Erreur lors de la vérification des permissions:', error);
-      return false;
-    }
   }
 
   private checkStreamsState(): void {
@@ -1036,6 +1215,114 @@ export class WebRTCService {
       console.log('ICE restart offer sent');
     } catch (error) {
       console.error('Error restarting ICE connection:', error);
+    }
+  }
+
+  getRemoteUserInfo$(): Observable<RemoteUserInfo | null> {
+    return this.remoteUserInfo$.asObservable();
+  }
+
+  getRemoteAudioStream(): Observable<MediaStream | null> {
+    return this.remoteStream.asObservable();
+  }
+
+  toggleAudio(muted: boolean) {
+    const audioTracks = this.localStreamSubject.value?.getAudioTracks();
+    if (audioTracks && audioTracks.length > 0) {
+      audioTracks.forEach(track => {
+        track.enabled = !muted;
+      });
+    }
+  }
+
+  toggleVideo(disabled: boolean) {
+    const videoTracks = this.localStreamSubject.value?.getVideoTracks();
+    if (videoTracks && videoTracks.length > 0) {
+      videoTracks.forEach(track => {
+        track.enabled = !disabled;
+      });
+    }
+  }
+
+  private updateRemoteUserInfo(userId: string) {
+    const userRef = doc(this.firestore, 'personnel', userId);
+    getDoc(userRef).then(docSnap => {
+      if (docSnap.exists()) {
+        const userData = docSnap.data();
+        this.remoteUserInfo$.next({
+          name: `${userData['nom']} ${userData['prenom']}`,
+          role: userData['role']
+        });
+      }
+    });
+  }
+
+  private async handleAnswer(answer: RTCSessionDescription, userId: string) {
+    try {
+      await this.peerConnection?.setRemoteDescription(answer);
+      this.updateRemoteUserInfo(userId);
+    } catch (error) {
+      console.error('Erreur lors du traitement de la réponse:', error);
+    }
+  }
+
+  private handleTrack(event: RTCTrackEvent) {
+    console.log('Nouveau flux distant reçu:', event.streams[0]);
+    this.remoteStream.next(event.streams[0]);
+  }
+
+  getCallDuration$(): Observable<string> {
+    return this.callDuration$.asObservable();
+  }
+
+  private startCallTimer() {
+    let seconds = 0;
+    this.callTimer = setInterval(() => {
+      seconds++;
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = seconds % 60;
+      this.callDuration$.next(
+        `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`
+      );
+    }, 1000);
+  }
+
+  private stopCallTimer() {
+    if (this.callTimer) {
+      clearInterval(this.callTimer);
+      this.callDuration$.next('00:00');
+    }
+  }
+
+  private async cancelCall(targetUserId: string): Promise<void> {
+    try {
+      this.closeActiveDialog();
+      const user = await this.authService.user$.pipe(take(1)).toPromise();
+      if (!user) return;
+
+      // Envoyer un message de rejet d'appel
+      await this.sendSignalingMessage({
+        type: 'call-rejected',
+        from: user.uid,
+        to: targetUserId,
+        sessionData: {},
+        timestamp: new Date()
+      });
+
+      // Réinitialiser l'état
+      this.incomingCallSubject.next(null);
+      this.currentSessionId = null;
+
+    } catch (error) {
+      console.error('Error canceling call:', error);
+    }
+  }
+
+  private closeActiveDialog(): void {
+    if (this.activeDialog) {
+      console.log('Closing active dialog');
+      this.activeDialog.close();
+      this.activeDialog = null;
     }
   }
 }

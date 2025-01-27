@@ -23,13 +23,19 @@ import { Subscription } from 'rxjs';
     <div class="call-container" *ngIf="webRTCService.callState$ | async as callState">
       <div class="video-container">
         <!-- Remote Video -->
-        <video #remoteVideo
-               class="remote-video"
-               [class.audio-only]="callState.isAudioOnly"
-               [class.hidden]="!callState.remoteStream"
-               autoplay
-               playsinline>
-        </video>
+        <div class="remote-video-container">
+          <video #remoteVideo
+                 class="remote-video"
+                 [class.audio-only]="callState.isAudioOnly"
+                 [class.hidden]="!callState.remoteStream"
+                 [srcObject]="callState.remoteStream"
+                 autoplay
+                 playsinline>
+          </video>
+          <div class="speaking-indicator" *ngIf="callState.isRemoteSpeaking">
+            <mat-icon>mic</mat-icon>
+          </div>
+        </div>
 
         <!-- Local Video -->
         <video #localVideo
@@ -119,6 +125,13 @@ import { Subscription } from 'rxjs';
     }
 
     .video-container {
+      position: relative;
+      flex: 1;
+      background-color: #000;
+      overflow: hidden;
+    }
+
+    .remote-video-container {
       position: relative;
       flex: 1;
       background-color: #000;
@@ -286,6 +299,26 @@ import { Subscription } from 'rxjs';
 
     .hidden {
       display: none;
+    }
+
+    .speaking-indicator {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background-color: rgba(0, 0, 0, 0.5);
+      padding: 5px;
+      border-radius: 50%;
+      color: white;
+    }
+
+    .speaking-indicator mat-icon {
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.2); }
+      100% { transform: scale(1); }
     }
   `]
 })

@@ -11,8 +11,9 @@ import {
   DocumentData,
   QueryDocumentSnapshot
 } from '@angular/fire/firestore';
-import { Observable, from } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { Observable, from, of } from 'rxjs';
+import { map, switchMap, take, tap, catchError } from 'rxjs/operators';
+import { AuthService } from '../auth/auth.service';
 
 export interface VitalSigns {
   id?: string;
@@ -51,12 +52,7 @@ export interface Intervention {
   patientId: string;
   currentVitals: {
     timestamp: Timestamp;
-    values: {
-      spo2: number;
-      ecg: number;
-      nibp: number;
-      temperature: number;
-    }
+    values: VitalSigns;
   };
   isActive: boolean;
 }
@@ -65,38 +61,69 @@ export interface Intervention {
   providedIn: 'root'
 })
 export class InterventionService {
-  constructor(private firestore: Firestore) {}
+  constructor(
+    private firestore: Firestore,
+    private authService: AuthService
+  ) {}
 
   private convertFirestoreData<T>(doc: QueryDocumentSnapshot<DocumentData>): T {
     return { id: doc['id'], ...doc.data() } as T;
   }
 
-  getInterventions(): Observable<Intervention[]> {
-    const interventionsRef = collection(this.firestore, 'interventions');
-    return from(getDocs(query(interventionsRef))).pipe(
-      map(snapshot => snapshot.docs.map(doc => this.convertFirestoreData<Intervention>(doc)))
+  private getCollectionData<T>(collectionName: string): Observable<T[]> {
+    console.log(`Fetching ${collectionName} data...`);
+    return this.authService.user$.pipe(
+      take(1),
+      tap(user => console.log(`User state for ${collectionName}:`, user)),
+      switchMap(user => {
+        if (!user) {
+          console.error(`User not authenticated for ${collectionName}`);
+          return of([]);
+        }
+        
+        const collectionRef = collection(this.firestore, collectionName);
+        return from(getDocs(query(collectionRef))).pipe(
+          tap(snapshot => console.log(`${collectionName} data received:`, snapshot.docs.length)),
+          map(snapshot => snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          } as T))),
+          catchError(error => {
+            console.error(`Error fetching ${collectionName}:`, error);
+            return of([]);
+          })
+        );
+      })
     );
+  }
+
+  getInterventions(): Observable<Intervention[]> {
+    return this.getCollectionData<Intervention>('interventions');
   }
 
   getPersonnel(): Observable<Personnel[]> {
-    const personnelRef = collection(this.firestore, 'personnel');
-    return from(getDocs(query(personnelRef))).pipe(
-      map(snapshot => snapshot.docs.map(doc => this.convertFirestoreData<Personnel>(doc)))
-    );
+    return this.getCollectionData<Personnel>('personnel');
   }
 
   getPatients(): Observable<Patient[]> {
-    const patientsRef = collection(this.firestore, 'patients');
-    return from(getDocs(query(patientsRef))).pipe(
-      map(snapshot => snapshot.docs.map(doc => this.convertFirestoreData<Patient>(doc)))
-    );
+    return this.getCollectionData<Patient>('patients');
   }
 
   getVitalSigns(interventionId: string): Observable<VitalSigns[]> {
-    const vitalsRef = collection(this.firestore, 'vitalSigns');
-    const vitalsQuery = query(vitalsRef, where('interventionId', '==', interventionId));
-    return from(getDocs(vitalsQuery)).pipe(
-      map(snapshot => snapshot.docs.map(doc => this.convertFirestoreData<VitalSigns>(doc)))
+    return this.authService.user$.pipe(
+      take(1),
+      switchMap(user => {
+        if (!user) {
+          console.error('User not authenticated');
+          return of([]);
+        }
+
+        const vitalsRef = collection(this.firestore, 'vitalSigns');
+        const vitalsQuery = query(vitalsRef);
+        return from(getDocs(vitalsQuery)).pipe(
+          map(snapshot => snapshot.docs.map(doc => this.convertFirestoreData<VitalSigns>(doc)))
+        );
+      })
     );
   }
 } 

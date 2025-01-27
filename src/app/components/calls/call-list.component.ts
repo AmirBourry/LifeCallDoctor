@@ -7,15 +7,17 @@ import { MatBadgeModule } from '@angular/material/badge';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatRippleModule } from '@angular/material/core';
 import { WebRTCService, OnlineUser } from '../../services/webrtc/webrtc.service';
-import { Observable, Subscription } from 'rxjs';
+import { Observable, Subscription, BehaviorSubject, combineLatest } from 'rxjs';
 import { FlexModule } from '@ngbracket/ngx-layout';
 import { AuthService } from '../../services/auth/auth.service';
 import { take } from 'rxjs/operators';
 import { MatDialog } from '@angular/material/dialog';
 import { MediaPermissionDialogComponent } from './media-permission-dialog.component';
+import { CallingDialogComponent } from './calling-dialog.component';
+import { map } from 'rxjs/operators';
 
 @Component({
-  selector: 'app-calls-list',
+  selector: 'app-call-list',
   standalone: true,
   imports: [
     CommonModule,
@@ -28,139 +30,121 @@ import { MediaPermissionDialogComponent } from './media-permission-dialog.compon
     FlexModule
   ],
   template: `
-    <div class="calls-container">
-      <div class="online-users-section">
-        <h2>Personnel disponible</h2>
+    <div class="call-list-container">
+      <div class="header">
+        <h1>Liste des infirmiers disponibles</h1>
+      </div>
 
-        <div class="search-bar">
-          <mat-icon>search</mat-icon>
-          <input type="text" placeholder="Rechercher un membre du personnel...">
-        </div>
-
-        <div class="users-list" *ngIf="onlineUsers$ | async as users">
-          <div class="empty-state" *ngIf="users.length === 0">
-            <mat-icon>people_outline</mat-icon>
-            <p>Aucun personnel disponible pour le moment</p>
-          </div>
-
-          <div class="users-grid" *ngIf="users.length > 0">
-            <mat-card class="user-card" *ngFor="let user of users"
-                      [class.online]="user.status === 'online'"
-                      matRipple
-                      (click)="initiateCall(user)">
+      <div class="users-container">
+        <ng-container *ngIf="(availableUsers$ | async)?.length; else noUsers">
+          <div class="user-list">
+            <div *ngFor="let user of availableUsers$ | async"
+                 class="user-card"
+                 [class.in-call]="user.status === 'in-call'">
               <div class="user-info">
-                <div class="user-avatar">
-                  <div class="status-indicator" [class]="user.status"></div>
-                  <mat-icon>{{user.role === 'medecin' ? 'medical_services' : 'health_and_safety'}}</mat-icon>
+                <div class="status-indicator" [class.online]="user.status === 'online'"
+                     [class.in-call]="user.status === 'in-call'">
                 </div>
+                <mat-icon class="user-icon">person</mat-icon>
                 <div class="user-details">
-                  <h3>{{user.name}}</h3>
-                  <p>{{user.role === 'medecin' ? 'Médecin' : 'Infirmier'}}</p>
+                  <h3>{{ user.nom }} {{ user.prenom }}</h3>
+                  <p class="status-text">
+                    <span [ngClass]="user.status">
+                      {{ user.status === 'online' ? 'Disponible' : 
+                         user.status === 'in-call' ? 'En consultation' : 'Hors ligne' }}
+                    </span>
+                  </p>
                 </div>
               </div>
-              <button mat-icon-button color="primary" class="call-button">
-                <mat-icon>videocam</mat-icon>
+              <button mat-raised-button 
+                      color="primary"
+                      [disabled]="user.status === 'in-call'"
+                      (click)="startCall(user.id)">
+                <mat-icon>video_call</mat-icon>
+                {{ user.status === 'in-call' ? 'En consultation' : 'Appeler' }}
               </button>
-            </mat-card>
+            </div>
           </div>
-        </div>
+        </ng-container>
+
+        <ng-template #noUsers>
+          <div class="no-users">
+            <mat-icon>people_outline</mat-icon>
+            <p>Aucun infirmier disponible pour le moment</p>
+          </div>
+        </ng-template>
       </div>
     </div>
   `,
   styles: [`
-    .calls-container {
-      padding: 24px;
-      height: calc(100vh - 48px);
-      background-color: #F7F2FA;
+    :host {
+      display: block;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .call-list-container {
+      height: 100%;
+      width: 100%;
+      padding: 2rem;
+      box-sizing: border-box;
       overflow-y: auto;
     }
 
-    h2 {
-      color: #1D192B;
-      font-size: 24px;
-      margin-bottom: 24px;
-      font-weight: 500;
+    .header {
+      margin-bottom: 2rem;
+      text-align: center;
     }
 
-    .search-bar {
-      display: flex;
-      align-items: center;
-      background: white;
-      padding: 12px 16px;
-      border-radius: 12px;
-      margin-bottom: 24px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    .header h1 {
+      color: #333;
+      font-size: 2rem;
+      margin: 0;
     }
 
-    .search-bar mat-icon {
-      color: #49454F;
-      margin-right: 12px;
-    }
-
-    .search-bar input {
-      border: none;
-      outline: none;
+    .users-container {
       width: 100%;
-      font-size: 16px;
-      color: #1D192B;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0;
     }
 
-    .search-bar input::placeholder {
-      color: #79747E;
-    }
-
-    .users-grid {
+    .user-list {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 16px;
+      gap: 1rem;
+      width: 100%;
     }
 
     .user-card {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 16px;
-      border-radius: 16px;
       background: white;
-      transition: transform 0.2s, box-shadow 0.2s;
-      cursor: pointer;
+      border-radius: 8px;
+      padding: 1rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
     }
 
     .user-card:hover {
       transform: translateY(-2px);
-      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     }
 
     .user-info {
       display: flex;
       align-items: center;
-      gap: 16px;
-    }
-
-    .user-avatar {
-      position: relative;
-      width: 48px;
-      height: 48px;
-      background: #E8DEF8;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .user-avatar mat-icon {
-      color: #6750A4;
-      font-size: 24px;
+      gap: 1rem;
     }
 
     .status-indicator {
-      position: absolute;
-      bottom: 0;
-      right: 0;
       width: 12px;
       height: 12px;
       border-radius: 50%;
-      border: 2px solid white;
+      background-color: #757575;
+      transition: background-color 0.3s ease;
     }
 
     .status-indicator.online {
@@ -168,111 +152,113 @@ import { MediaPermissionDialogComponent } from './media-permission-dialog.compon
     }
 
     .status-indicator.in-call {
-      background-color: #FFC107;
+      background-color: #FF9800;
     }
 
-    .status-indicator.offline {
-      background-color: #9E9E9E;
+    .user-icon {
+      color: #666;
+      font-size: 2rem;
+      width: 2rem;
+      height: 2rem;
+    }
+
+    .user-details {
+      flex: 1;
     }
 
     .user-details h3 {
       margin: 0;
-      color: #1D192B;
-      font-size: 16px;
-      font-weight: 500;
+      color: #333;
+      font-size: 1.1rem;
     }
 
-    .user-details p {
-      margin: 4px 0 0;
-      color: #49454F;
-      font-size: 14px;
+    .status-text {
+      margin: 0.25rem 0 0;
+      font-size: 0.9rem;
     }
 
-    .call-button {
-      background-color: #E8DEF8;
+    .status-text .online {
+      color: #4CAF50;
     }
 
-    .empty-state {
+    .status-text .in-call {
+      color: #FF9800;
+    }
+
+    .status-text .offline {
+      color: #757575;
+    }
+
+    button {
+      width: 100%;
+    }
+
+    button mat-icon {
+      margin-right: 0.5rem;
+    }
+
+    .no-users {
       text-align: center;
-      padding: 48px;
-      background: white;
-      border-radius: 16px;
-      color: #49454F;
-      grid-column: 1 / -1;
+      padding: 3rem;
+      color: #666;
     }
 
-    .empty-state mat-icon {
-      font-size: 48px;
-      height: 48px;
-      width: 48px;
-      margin-bottom: 16px;
-      color: #79747E;
-    }
-
-    .empty-state p {
-      margin: 0;
-      font-size: 16px;
+    .no-users mat-icon {
+      font-size: 4rem;
+      width: 4rem;
+      height: 4rem;
+      margin-bottom: 1rem;
     }
   `]
 })
-export class CallsListComponent implements OnInit, OnDestroy {
-  onlineUsers$: Observable<OnlineUser[]>;
-  private callStateSubscription?: Subscription;
+export class CallListComponent implements OnInit, OnDestroy {
+  availableUsers$: Observable<OnlineUser[]>;
+  private subscriptions: Subscription[] = [];
 
   constructor(
     private webRTCService: WebRTCService,
     private authService: AuthService,
     private dialog: MatDialog
   ) {
-    this.onlineUsers$ = this.webRTCService.getOnlineUsers();
+    this.availableUsers$ = this.webRTCService.getOnlineUsers().pipe(
+      map(users => users.filter(user => user.status !== 'offline'))
+    );
   }
 
   ngOnInit() {
     // Surveiller l'état des appels
-    this.callStateSubscription = this.webRTCService.callState$.subscribe(state => {
+    this.subscriptions.push(this.webRTCService.callState$.subscribe(state => {
       if (state.isInCall) {
         // Mettre à jour l'interface si nécessaire
       }
-    });
+    }));
   }
 
-  async initiateCall(user: OnlineUser): Promise<void> {
+  async startCall(userId: string) {
     try {
-      const currentUser = await this.authService.user$.pipe(take(1)).toPromise();
-      if (!currentUser) return;
-
-      if (user.status === 'in-call') {
-        // Créer l'ID de session en utilisant l'ID de l'autre utilisateur comme initiateur
-        const sessionId = `${user.id}_${currentUser.uid}`;
-        await this.webRTCService.acceptCall(sessionId, user.id);
-      } else {
-        await this.webRTCService.startCall(user.id);
-      }
-    } catch (error: unknown) {
-      if (error instanceof Error && error.message === 'PERMISSION_DENIED') {
+      // Vérifier les permissions avant de démarrer l'appel
+      const permissions = await this.webRTCService.checkAndRequestPermissions();
+      
+      if (!permissions.video && !permissions.audio) {
+        // Afficher le dialogue de permission si nécessaire
         const dialogRef = this.dialog.open(MediaPermissionDialogComponent, {
           width: '400px',
-          disableClose: true,
-          data: { isRetry: false }
+          disableClose: true
         });
-        
-        dialogRef.afterClosed().subscribe(async result => {
-          if (result) {
-            try {
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              await this.initiateCall(user);
-            } catch (retryError) {
-              console.error('Erreur lors de la nouvelle tentative:', retryError);
-            }
-          }
-        });
-      } else {
-        console.error('Erreur lors de l\'initiation de l\'appel:', error);
+
+        const result = await dialogRef.afterClosed().toPromise();
+        if (!result) return;
       }
+
+      // Démarrer l'appel
+      await this.webRTCService.startCall(userId);
+      
+    } catch (error) {
+      console.error('Erreur lors du démarrage de l\'appel:', error);
     }
   }
 
   ngOnDestroy() {
-    this.callStateSubscription?.unsubscribe();
+    this.subscriptions.forEach(subscription => subscription.unsubscribe());
   }
 }

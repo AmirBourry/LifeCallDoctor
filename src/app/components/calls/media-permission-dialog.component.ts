@@ -1,52 +1,79 @@
-import { Component, Inject } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { MatDialogModule, MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
+import { MatDialogRef, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
 
 @Component({
   selector: 'app-media-permission-dialog',
   standalone: true,
-  imports: [CommonModule, MatDialogModule, MatButtonModule],
+  imports: [
+    CommonModule,
+    MatDialogModule,
+    MatButtonModule
+  ],
   template: `
-    <h2 mat-dialog-title>Permissions requises</h2>
+    <h2 mat-dialog-title>Permissions nécessaires</h2>
     <mat-dialog-content>
-      <p>Pour passer des appels, l'application a besoin d'accéder à votre caméra et votre microphone.</p>
-      <p>Veuillez suivre ces étapes :</p>
-      <ol>
-        <li>Cliquez sur l'icône de caméra/microphone dans la barre d'adresse</li>
-        <li>Sélectionnez "Autoriser"</li>
-        <li>Cliquez sur "Réessayer" ci-dessous</li>
-      </ol>
-      <p class="note">Note : Si vous ne voyez pas la demande de permission, vérifiez les paramètres de votre navigateur.</p>
+      <p>Pour passer des appels vidéo, l'application a besoin d'accéder à :</p>
+      <ul>
+        <li>Votre caméra</li>
+        <li>Votre microphone</li>
+      </ul>
+      <p>Veuillez autoriser ces accès dans votre navigateur quand ils seront demandés.</p>
+      
+      <div *ngIf="errorMessage" class="error-message">
+        <p>{{ errorMessage }}</p>
+        <p>Solutions possibles :</p>
+        <ul>
+          <li>Vérifiez les paramètres de votre navigateur</li>
+          <li>Cliquez sur l'icône de caméra/microphone dans la barre d'adresse</li>
+          <li>Rafraîchissez la page et réessayez</li>
+        </ul>
+      </div>
     </mat-dialog-content>
     <mat-dialog-actions align="end">
-      <button mat-button (click)="dialogRef.close(false)">Annuler</button>
-      <button mat-raised-button color="primary" (click)="dialogRef.close(true)">
-        Réessayer
-      </button>
+      <button mat-button (click)="openBrowserSettings()">Ouvrir les paramètres</button>
+      <button mat-button [mat-dialog-close]="true">Compris</button>
     </mat-dialog-actions>
   `,
   styles: [`
-    mat-dialog-content {
-      min-width: 300px;
-    }
-    .note {
+    .error-message {
+      color: #f44336;
       margin-top: 16px;
-      font-style: italic;
-      color: rgba(0,0,0,0.6);
-    }
-    ol {
-      margin: 16px 0;
-      padding-left: 20px;
-    }
-    li {
-      margin-bottom: 8px;
+      padding: 8px;
+      border: 1px solid #f44336;
+      border-radius: 4px;
     }
   `]
 })
-export class MediaPermissionDialogComponent {
+export class MediaPermissionDialogComponent implements OnInit {
+  errorMessage: string = '';
+
   constructor(
-    public dialogRef: MatDialogRef<MediaPermissionDialogComponent>,
-    @Inject(MAT_DIALOG_DATA) public data: { isRetry: boolean }
+    private dialogRef: MatDialogRef<MediaPermissionDialogComponent>
   ) {}
+
+  ngOnInit() {
+    // Vérifier si le navigateur est Edge ou Arc
+    const isEdge = navigator.userAgent.includes('Edg');
+    const isArc = navigator.userAgent.includes('Arc');
+
+    if (isEdge || isArc) {
+      this.errorMessage = `Nous avons détecté que vous utilisez ${isEdge ? 'Edge' : 'Arc'}. 
+        Ce navigateur peut nécessiter des autorisations supplémentaires.`;
+    }
+  }
+
+  openBrowserSettings() {
+    if (navigator.userAgent.includes('Edg')) {
+      window.open('edge://settings/content/camera', '_blank');
+      window.open('edge://settings/content/microphone', '_blank');
+    } else if (navigator.userAgent.includes('Arc')) {
+      window.open('chrome://settings/content/camera', '_blank');
+      window.open('chrome://settings/content/microphone', '_blank');
+    } else {
+      window.open('chrome://settings/content/camera', '_blank');
+      window.open('chrome://settings/content/microphone', '_blank');
+    }
+  }
 } 

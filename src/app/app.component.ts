@@ -1,32 +1,68 @@
 import { Component } from '@angular/core';
-import { SidebarComponent } from './components/sidebar/sidebar.component';
-import { RouterOutlet } from '@angular/router';
-import { FlexModule } from '@ngbracket/ngx-layout';
 import { CommonModule } from '@angular/common';
+import { RouterOutlet, Router, NavigationEnd } from '@angular/router';
+import { SidebarComponent } from './components/sidebar/sidebar.component';
+import { filter, map } from 'rxjs/operators';
+import { Observable, combineLatest } from 'rxjs';
 import { AuthService } from './services/auth/auth.service';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [
-    CommonModule,
-    SidebarComponent,
-    RouterOutlet,
-    FlexModule
-  ],
+  imports: [CommonModule, RouterOutlet, SidebarComponent],
   template: `
-    <ng-container *ngIf="(authService.user$ | async); else loginLayout">
-      <div fxLayout="row" fxLayoutAlign="start stretch">
-        <app-sidebar fxFlex="15"></app-sidebar>
+    <div class="app-container">
+      <app-sidebar *ngIf="showSidebar$ | async"></app-sidebar>
+      <main [class.withSidebar]="showSidebar$ | async">
         <router-outlet></router-outlet>
-      </div>
-    </ng-container>
-    <ng-template #loginLayout>
-      <router-outlet></router-outlet>
-    </ng-template>
+      </main>
+    </div>
   `,
-  styleUrl: './app.component.css'
+  styles: [`
+    .app-container {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      position: relative;
+    }
+
+    main {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      width: 100%;
+      transition: margin-left 0.3s ease, width 0.3s ease;
+    }
+
+    .withSidebar {
+      margin-left: 280px;
+      width: calc(100% - 280px);
+    }
+
+    ::ng-deep .content-container {
+      max-width: 100%;
+      margin: 0 auto;
+      padding: 0;
+      box-sizing: border-box;
+    }
+  `]
 })
 export class AppComponent {
-  constructor(public authService: AuthService) {}
+  showSidebar$: Observable<boolean>;
+
+  constructor(private router: Router, private authService: AuthService) {
+    this.showSidebar$ = combineLatest([
+      this.router.events.pipe(
+        filter((event): event is NavigationEnd => event instanceof NavigationEnd),
+        map(event => event.urlAfterRedirects)
+      ),
+      this.authService.user$
+    ]).pipe(
+      map(([url, user]) => {
+        const routesWithoutSidebar = ['/login', '/register', '/nurse'];
+        return !routesWithoutSidebar.includes(url) && user?.role === 'medecin';
+      })
+    );
+  }
 }

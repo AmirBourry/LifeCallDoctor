@@ -1,70 +1,202 @@
 import { Injectable } from '@angular/core';
-import { Auth, User, signInWithEmailAndPassword, signOut, user, onAuthStateChanged } from '@angular/fire/auth';
-import { BehaviorSubject, Observable } from 'rxjs';
+import { Auth, User, signInWithEmailAndPassword, signOut, onAuthStateChanged } from '@angular/fire/auth';
+import { Firestore, doc, getDoc, setDoc, collection, updateDoc } from '@angular/fire/firestore';
+import { BehaviorSubject, Observable, from } from 'rxjs';
+import { map, switchMap, tap } from 'rxjs/operators';
 import { Router } from '@angular/router';
-import { Firestore, doc, setDoc } from '@angular/fire/firestore';
+
+export interface AppUser extends User {
+  role?: 'medecin' | 'infirmier';
+  nom?: string;
+  prenom?: string;
+  specialite?: string;
+}
 
 @Injectable({
   providedIn: 'root'
 })
 export class AuthService {
-  private userSubject = new BehaviorSubject<User | null>(null);
+  private userSubject = new BehaviorSubject<AppUser | null>(null);
   user$ = this.userSubject.asObservable();
+  private initialized = false;
 
   constructor(
     private auth: Auth,
-    private router: Router,
-    private firestore: Firestore
+    private firestore: Firestore,
+    private router: Router
   ) {
     onAuthStateChanged(this.auth, async (user) => {
       console.log('Auth state changed:', user?.uid);
-      this.userSubject.next(user);
       if (user) {
-        await this.createOrUpdateUserDocument(user);
+        try {
+          const personnelDoc = await getDoc(doc(this.firestore, 'personnel', user.uid));
+          if (personnelDoc.exists()) {
+            const personnelData = personnelDoc.data();
+            const authUser: AppUser = {
+              ...user,
+              role: personnelData['role'],
+              nom: personnelData['nom'],
+              prenom: personnelData['prenom'],
+              specialite: personnelData['specialite']
+            };
+            this.userSubject.next(authUser);
+
+            // Redirection en fonction du rôle
+            const currentUrl = this.router.url;
+            if (currentUrl === '/login' || currentUrl === '/register') {
+              if (personnelData['role'] === 'medecin') {
+                this.router.navigate(['/calls']);
+              } else if (personnelData['role'] === 'infirmier') {
+                this.router.navigate(['/nurse']);
+              }
+            }
+          } else {
+            console.log('Utilisateur sans profil détecté');
+            this.userSubject.next(user as AppUser);
+            if (this.router.url !== '/register') {
+              this.router.navigate(['/register']);
+            }
+          }
+        } catch (error) {
+          console.error('Erreur lors de la récupération du profil:', error);
+          this.signOut();
+        }
+      } else {
+        this.userSubject.next(null);
+        if (this.router.url !== '/login') {
+          this.router.navigate(['/login']);
+        }
       }
     });
   }
 
-  private async createOrUpdateUserDocument(user: User): Promise<void> {
-    const userRef = doc(this.firestore, 'users', user.uid);
+  private async updateUserStatus(uid: string, isAvailable: boolean): Promise<void> {
     try {
-      await setDoc(userRef, {
-        id: user.uid,
-        name: user.displayName || 'Utilisateur',
-        email: user.email,
-        role: 'medecin',
-        status: 'online',
-        lastSeen: new Date()
-      }, { merge: true });
+      const personnelRef = doc(this.firestore, 'personnel', uid);
+      await updateDoc(personnelRef, {
+        isAvailable: isAvailable,
+        lastActive: new Date()
+      });
+      console.log(`Status updated for user ${uid}:`, isAvailable);
     } catch (error) {
-      console.error('Erreur lors de la création/mise à jour du document utilisateur:', error);
+      console.error('Error updating user status:', error);
     }
   }
 
-  async login(email: string, password: string): Promise<any> {
+  async login(email: string, password: string): Promise<void> {
     try {
       const result = await signInWithEmailAndPassword(this.auth, email, password);
-      await this.createOrUpdateUserDocument(result.user);
-      return result;
+      const personnelDoc = await getDoc(doc(this.firestore, 'personnel', result.user.uid));
+      
+      if (!personnelDoc.exists()) {
+        this.router.navigate(['/register']);
+      } else {
+        // Mettre à jour le statut comme disponible lors de la connexion
+        await this.updateUserStatus(result.user.uid, true);
+        console.log('User status set to available after login');
+
+        const personnelData = personnelDoc.data();
+        if (personnelData['role'] === 'medecin') {
+          this.router.navigate(['/calls']);
+        } else if (personnelData['role'] === 'infirmier') {
+          this.router.navigate(['/nurse']);
+        }
+      }
     } catch (error) {
+      console.error('Erreur de connexion:', error);
       throw error;
     }
   }
 
-  async logout(): Promise<void> {
+  async signOut(): Promise<void> {
     try {
+      if (this.auth.currentUser) {
+        // Mettre à jour le statut comme non disponible lors de la déconnexion
+        await this.updateUserStatus(this.auth.currentUser.uid, false);
+        console.log('User status set to unavailable before logout');
+      }
       await signOut(this.auth);
-      await this.router.navigate(['/login']);
     } catch (error) {
+      console.error('Erreur lors de la déconnexion:', error);
       throw error;
     }
   }
 
-  isAuthenticated(): Observable<boolean> {
-    return new Observable(subscriber => {
-      user(this.auth).subscribe(user => {
-        subscriber.next(!!user);
+  // Helper methods pour vérifier le rôle
+  isMedecin(): Observable<boolean> {
+    return this.user$.pipe(
+      map(user => user?.role === 'medecin')
+    );
+  }
+
+  isInfirmier(): Observable<boolean> {
+    return this.user$.pipe(
+      map(user => user?.role === 'infirmier')
+    );
+  }
+
+  // Méthode pour obtenir la liste des médecins disponibles
+  getMedecinsDisponibles(): Observable<any[]> {
+    const personnelRef = collection(this.firestore, 'personnel');
+    return from(getDoc(doc(personnelRef, 'medecins'))).pipe(
+      map(snapshot => {
+        if (!snapshot.exists()) return [];
+        const data = snapshot.data();
+        return Object.values(data).filter((medecin: any) => medecin.isAvailable);
+      })
+    );
+  }
+
+  async completeProfile(profileData: {
+    nom: string;
+    prenom: string;
+    role: 'medecin' | 'infirmier';
+    specialite?: string;
+  }): Promise<void> {
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('Aucun utilisateur connecté');
+
+    try {
+      await setDoc(doc(this.firestore, 'personnel', user.uid), {
+        ...profileData,
+        isAvailable: true,
+        lastActive: new Date()
       });
-    });
+
+      const authUser: AppUser = {
+        ...user,
+        ...profileData
+      };
+      this.userSubject.next(authUser);
+      
+      // Rediriger vers la page appropriée selon le rôle
+      const route = profileData.role === 'medecin' ? '/calls' : '/infirmier/calls';
+      this.router.navigate([route]);
+    } catch (error) {
+      console.error('Erreur lors de la création du profil:', error);
+      throw error;
+    }
+  }
+
+  async checkProfile(): Promise<boolean> {
+    const user = this.auth.currentUser;
+    if (!user) return false;
+
+    const personnelDoc = await getDoc(doc(this.firestore, 'personnel', user.uid));
+    return personnelDoc.exists();
+  }
+
+  async hasProfile(): Promise<boolean> {
+    const user = this.auth.currentUser;
+    if (!user) return false;
+
+    const personnelDoc = await getDoc(doc(this.firestore, 'personnel', user.uid));
+    return personnelDoc.exists();
+  }
+
+  async requireProfile(): Promise<void> {
+    if (!(await this.hasProfile())) {
+      this.router.navigate(['/register']);
+    }
   }
 }

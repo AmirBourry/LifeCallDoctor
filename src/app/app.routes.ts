@@ -1,38 +1,48 @@
 import { Routes } from '@angular/router';
-import { DoctorComponent } from './components/doctor/doctor.component';
-import { LoginComponent } from './components/auth/login/login.component';
+import { CallsComponent } from './components/calls/calls.component';
 import { authGuard } from './guards/auth.guard';
-import { loginGuard } from './guards/login.guard';
-import {CallsComponent} from './components/calls/calls.component';
-import {WebRTCTestComponent} from './components/calls/test-webrtc.component';
+import { RoleGuard } from './guards/role.guard';
+import { ProfileGuard } from './guards/profile.guard';
+import { RegisterComponent } from './components/auth/register/register.component';
+import { LoginComponent } from './components/auth/login/login.component';
+import { NurseViewComponent } from './components/nurse/nurse-view.component';
 
 export const routes: Routes = [
+  { 
+    path: '', 
+    redirectTo: '/login', 
+    pathMatch: 'full' 
+  },
   {
     path: 'login',
-    component: LoginComponent,
-    canActivate: [loginGuard]
+    component: LoginComponent
   },
   {
-    path: 'doctor',
-    component: DoctorComponent,
+    path: 'register',
+    component: RegisterComponent,
     canActivate: [authGuard]
   },
-  {
-    path: 'doctor/calls',
+  { 
+    path: 'calls',
     component: CallsComponent,
-    canActivate: [authGuard]
+    canActivate: [authGuard, ProfileGuard, RoleGuard],
+    data: { role: 'medecin' }
   },
   {
-    path: 'test-webrtc',
-    component: WebRTCTestComponent
+    path: 'nurse',
+    component: NurseViewComponent,
+    canActivate: [authGuard, ProfileGuard, RoleGuard],
+    data: { role: 'infirmier' }
   },
   {
-    path: '',
-    redirectTo: '/doctor',
-    pathMatch: 'full'
+    path: 'reports',
+    loadComponent: () => 
+      import('./components/reports/reports.component').then(m => m.ReportsComponent),
+    canActivate: [authGuard, ProfileGuard, RoleGuard],
+    data: { role: 'medecin' }
   },
-  {
-    path: '**',
-    redirectTo: '/doctor'
+  { 
+    path: '**', 
+    redirectTo: '/login' 
   }
 ];

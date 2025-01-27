@@ -1,4 +1,5 @@
 import { Component } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthService } from '../../../services/auth/auth.service';
@@ -7,7 +8,6 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
-import { CommonModule } from '@angular/common';
 
 @Component({
   selector: 'app-login',
@@ -45,7 +45,6 @@ export class LoginComponent {
       try {
         const { email, password } = this.loginForm.value;
         await this.authService.login(email, password);
-        this.router.navigate(['/doctor']);
       } catch (error: any) {
         this.errorMessage = 'Erreur d\'authentification. Veuillez vérifier vos identifiants.';
       }
