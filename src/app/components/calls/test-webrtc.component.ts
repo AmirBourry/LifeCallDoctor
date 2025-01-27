@@ -98,6 +98,7 @@ export class WebRTCTestComponent implements OnInit, OnDestroy {
   @ViewChild('remoteVideo') remoteVideo!: ElementRef<HTMLVideoElement>;
   
   private callStateSubscription?: Subscription;
+  private authSubscription?: Subscription;
 
   constructor(
     public webRTCService: WebRTCService,
@@ -105,6 +106,14 @@ export class WebRTCTestComponent implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit() {
+    // Vérifier l'état de l'authentification
+    this.authSubscription = this.authService.user$.subscribe(user => {
+      console.log('Test interface - Current user:', user?.uid);
+      if (!user) {
+        console.warn('No user authenticated in test interface');
+      }
+    });
+
     this.callStateSubscription = this.webRTCService.callState$.subscribe(state => {
       console.log('Call state updated:', state);
       if (state.localStream && this.localVideo) {
@@ -120,6 +129,7 @@ export class WebRTCTestComponent implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     this.callStateSubscription?.unsubscribe();
+    this.authSubscription?.unsubscribe();
     this.endCall();
   }
 

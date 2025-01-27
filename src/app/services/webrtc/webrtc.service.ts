@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable, take } from 'rxjs';
+import { BehaviorSubject, Observable, take, distinctUntilChanged } from 'rxjs';
 import {
   Firestore,
   collection,
@@ -96,20 +96,36 @@ export class WebRTCService {
     private authService: AuthService
   ) {
     console.log('WebRTCService constructor');
+    
+    // S'assurer que l'écouteur est mis en place dès qu'un utilisateur est authentifié
     this.authService.user$.subscribe(user => {
-      console.log('Current user:', user?.uid);
+      console.log('Auth state changed in WebRTCService:', user?.uid);
       if (user) {
-        if (this.signalingUnsubscribe) {
-          this.signalingUnsubscribe();
-        }
+        console.log('Setting up signaling handlers for user:', user.uid);
         this.setupSignalingHandlers();
       } else {
         if (this.signalingUnsubscribe) {
+          console.log('Cleaning up signaling handler');
           this.signalingUnsubscribe();
           this.signalingUnsubscribe = null;
         }
+        this.resetCallState();
       }
     });
+  }
+
+  private resetCallState(): void {
+    this.callStateSubject.next({
+      isInCall: false,
+      remoteStream: null,
+      localStream: null,
+      isMuted: false,
+      isCameraOff: false,
+      isAudioOnly: false,
+      remotePeerName: null,
+      callStartTime: null
+    });
+    this.incomingCallSubject.next(null);
   }
 
   getOnlineUsers(): Observable<OnlineUser[]> {
@@ -234,12 +250,37 @@ export class WebRTCService {
       }
     };
 
+    // Rétablir la gestion des candidats ICE
+    this.peerConnection.onicecandidate = async (event) => {
+      if (event.candidate) {
+        console.log('New ICE candidate:', event.candidate);
+        const user = await this.authService.user$.pipe(take(1)).toPromise();
+        if (!user || !this.currentSessionId) return;
+
+        const [caller, callee] = this.currentSessionId.split('_');
+        const targetUserId = user.uid === caller ? callee : caller;
+
+        await this.sendSignalingMessage({
+          type: 'ice-candidate',
+          from: user.uid,
+          to: targetUserId,
+          sessionData: {
+            candidate: event.candidate.toJSON()
+          },
+          timestamp: new Date()
+        });
+      }
+    };
+
     this.peerConnection.oniceconnectionstatechange = () => {
       console.log('ICE connection state:', this.peerConnection?.iceConnectionState);
     };
 
     this.peerConnection.onconnectionstatechange = () => {
       console.log('Connection state:', this.peerConnection?.connectionState);
+      if (this.peerConnection?.connectionState === 'connected') {
+        console.log('Peer connection established successfully');
+      }
     };
 
     this.setupDataChannel();
@@ -263,26 +304,88 @@ export class WebRTCService {
     };
   }
 
+  private setupSignalingHandlers(): void {
+    console.log('Setting up signaling handlers');
+    if (this.signalingUnsubscribe) {
+      console.log('Cleaning up previous signaling handler');
+      this.signalingUnsubscribe();
+    }
+
+    this.authService.user$.pipe(take(1)).subscribe(async user => {
+      if (!user) {
+        console.log('No user found for signaling setup');
+        return;
+      }
+
+      console.log('Setting up signaling handlers for user:', user.uid);
+      const rtcSignalingRef = collection(this.firestore, 'rtcSignaling');
+      
+      // Vérifier d'abord s'il y a des messages en attente
+      const pendingQuery = query(rtcSignalingRef, where('to', '==', user.uid));
+      const pendingSnapshot = await getDocs(pendingQuery);
+      console.log('Checking pending messages:', pendingSnapshot.docs.length);
+      
+      for (const doc of pendingSnapshot.docs) {
+        const message = doc.data() as RTCSignalingMessage;
+        console.log('Processing pending message:', message);
+        try {
+          await this.handleSignalingMessage(message);
+          await deleteDoc(doc.ref);
+        } catch (error) {
+          console.error('Error processing pending message:', error);
+        }
+      }
+
+      // Mettre en place l'écouteur pour les nouveaux messages
+      this.signalingUnsubscribe = onSnapshot(
+        pendingQuery,
+        {
+          next: async (snapshot) => {
+            console.log('Signaling snapshot received, docs:', snapshot.docs.length);
+            for (const change of snapshot.docChanges()) {
+              console.log('Document change:', change.type, change.doc.data());
+              if (change.type === 'added') {
+                const message = change.doc.data() as RTCSignalingMessage;
+                console.log('Processing new message:', message);
+                
+                try {
+                  await this.handleSignalingMessage(message);
+                  console.log('Message processed, deleting document');
+                  await deleteDoc(change.doc.ref);
+                } catch (error) {
+                  console.error('Error handling signaling message:', error);
+                }
+              }
+            }
+          },
+          error: (error) => {
+            console.error('Error in signaling handler:', error);
+          }
+        }
+      );
+    });
+  }
+
   private async handleSignalingMessage(message: RTCSignalingMessage): Promise<void> {
     console.log('Handling signaling message:', message);
     const user = await this.authService.user$.pipe(take(1)).toPromise();
     if (!user) return;
 
     try {
-      if (!this.peerConnection && message.type !== 'call-request') {
-        console.log('Initializing peer connection for incoming message');
-        const localStream = await this.getLocalStream();
-        await this.initializePeerConnection(localStream);
-      }
-
       switch (message.type) {
         case 'call-request':
-          console.log('Received call request from:', message.from);
-          this.incomingCallSubject.next({
-            sessionId: `${message.from}_${user.uid}`,
-            callerId: message.from,
-            callerName: message.sessionData.callerName || 'Unknown'
-          });
+          console.log('Processing call request from:', message.from);
+          // Vérifier si nous ne sommes pas déjà en appel
+          if (!this.callStateSubject.value.isInCall) {
+            this.incomingCallSubject.next({
+              sessionId: `${message.from}_${user.uid}`,
+              callerId: message.from,
+              callerName: message.sessionData.callerName || 'Unknown'
+            });
+            console.log('Incoming call set:', this.incomingCallSubject.value);
+          } else {
+            console.log('Already in call, ignoring request');
+          }
           break;
 
         case 'call-accepted':
@@ -367,81 +470,6 @@ export class WebRTCService {
     } catch (error) {
       console.error('Error handling signaling message:', error);
       throw error;
-    }
-  }
-
-  private setupSignalingHandlers(): void {
-    console.log('Setting up signaling handlers');
-    if (this.signalingUnsubscribe) {
-      console.log('Cleaning up previous signaling handler');
-      this.signalingUnsubscribe();
-    }
-
-    this.authService.user$.pipe(take(1)).subscribe(user => {
-      if (!user) {
-        console.log('No user found for signaling setup');
-        return;
-      }
-
-      console.log('Setting up signaling handlers for user:', user.uid);
-      const rtcSignalingRef = collection(this.firestore, 'rtcSignaling');
-      
-      // Log the query parameters
-      const q = query(rtcSignalingRef, where('to', '==', user.uid));
-      console.log('Signaling query:', q);
-      
-      this.signalingUnsubscribe = onSnapshot(
-        q,
-        async (snapshot) => {
-          console.log('Signaling snapshot received, docs count:', snapshot.docs.length);
-          for (const change of snapshot.docChanges()) {
-            console.log('Document change type:', change.type);
-            if (change.type === 'added') {
-              const message = change.doc.data() as RTCSignalingMessage;
-              console.log('New signaling message received:', message);
-              
-              try {
-                await this.handleSignalingMessage(message);
-                console.log('Message handled successfully, deleting document');
-                await deleteDoc(change.doc.ref);
-              } catch (error) {
-                console.error('Error handling signaling message:', error);
-              }
-            }
-          }
-        },
-        (error) => {
-          console.error('Error in signaling handler:', error);
-        }
-      );
-
-      // Vérifier immédiatement s'il y a des messages en attente
-      this.checkPendingMessages(user.uid);
-    });
-  }
-
-  // Nouvelle méthode pour vérifier les messages en attente
-  private async checkPendingMessages(userId: string) {
-    try {
-      const rtcSignalingRef = collection(this.firestore, 'rtcSignaling');
-      const q = query(rtcSignalingRef, where('to', '==', userId));
-      const snapshot = await getDocs(q);
-      
-      console.log('Checking pending messages, found:', snapshot.docs.length);
-      
-      for (const doc of snapshot.docs) {
-        const message = doc.data() as RTCSignalingMessage;
-        console.log('Processing pending message:', message);
-        
-        try {
-          await this.handleSignalingMessage(message);
-          await deleteDoc(doc.ref);
-        } catch (error) {
-          console.error('Error handling pending message:', error);
-        }
-      }
-    } catch (error) {
-      console.error('Error checking pending messages:', error);
     }
   }
 

@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { Auth, User, signInWithEmailAndPassword, signOut, user } from '@angular/fire/auth';
+import { Auth, User, signInWithEmailAndPassword, signOut, user, onAuthStateChanged } from '@angular/fire/auth';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { Router } from '@angular/router';
 import { Firestore, doc, setDoc } from '@angular/fire/firestore';
@@ -16,10 +16,11 @@ export class AuthService {
     private router: Router,
     private firestore: Firestore
   ) {
-    user(this.auth).subscribe((user: User | null) => {
+    onAuthStateChanged(this.auth, async (user) => {
+      console.log('Auth state changed:', user?.uid);
       this.userSubject.next(user);
       if (user) {
-        this.createOrUpdateUserDocument(user);
+        await this.createOrUpdateUserDocument(user);
       }
     });
   }
