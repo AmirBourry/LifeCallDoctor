@@ -45,6 +45,9 @@ export class AuthService {
     try {
       const result = await signInWithEmailAndPassword(this.auth, email, password);
       await this.createOrUpdateUserDocument(result.user);
+      if(result.user.email === 'infirmier@gmail.com'){
+        await this.router.navigate(['/ems']);
+      }
       return result;
     } catch (error) {
       throw error;
