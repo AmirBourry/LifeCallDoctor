@@ -6,6 +6,7 @@ import { TakeinchargeComponent } from './takeincharge/takeincharge.component';
 import { FollowingComponent } from './following/following.component';
 import { InterventionService, Intervention } from '../../services/intervention/intervention.service';
 import { CommonModule } from '@angular/common';
+import { Observable, tap } from 'rxjs';
 
 @Component({
   selector: 'app-doctor',
@@ -23,15 +24,15 @@ import { CommonModule } from '@angular/common';
   styleUrls: ['./doctor.component.css']
 })
 export class DoctorComponent implements OnInit {
-  interventions: Intervention[] = [];
+  interventions$: Observable<Intervention[]>;
 
-  constructor(private interventionService: InterventionService) {}
+  constructor(private interventionService: InterventionService) {
+    this.interventions$ = this.interventionService.getInterventions().pipe(
+      tap(interventions => console.log('Interventions reçues:', interventions))
+    );
+  }
 
   ngOnInit() {
-    this.interventionService.getInterventions().subscribe(
-      interventions => {
-        this.interventions = interventions;
-      }
-    );
+    // Pas besoin de s'abonner ici car nous utilisons le pipe async dans le template
   }
 }

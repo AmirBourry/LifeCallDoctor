@@ -1,69 +1,98 @@
 <div class="container" fxLayout="column" fxLayoutGap="16px">
   <div class="header" fxLayout="row" fxLayoutAlign="space-between center">
     <h1>Rapports d'intervention</h1>
-    <button mat-raised-button color="primary">
-      <mat-icon>add</mat-icon>
-      Nouveau rapport
-    </button>
   </div>
 
-  <mat-card>
-    <mat-form-field appearance="outline" class="search-field">
-      <mat-label>Rechercher un rapport</mat-label>
-      <input matInput placeholder="Nom du patient, date...">
-      <mat-icon matSuffix>search</mat-icon>
-    </mat-form-field>
+  <ng-container *ngIf="reports$ | async as reports">
+    <div *ngIf="!loading && reports.length === 0" class="empty-state">
+      <mat-icon>assignment</mat-icon>
+      <h2>Aucun rapport disponible</h2>
+      <p>Les rapports d'intervention s'afficheront ici une fois créés.</p>
+    </div>
 
-    <table mat-table [dataSource]="reports" class="mat-elevation-z0">
-      <ng-container matColumnDef="date">
-        <th mat-header-cell *matHeaderCellDef> Date </th>
-        <td mat-cell *matCellDef="let element"> {{element.date | date:'dd/MM/yyyy'}} </td>
-      </ng-container>
+    <div *ngIf="reports.length > 0" fxLayout="row wrap" fxLayoutGap="16px grid">
+      <mat-card *ngFor="let report of reports" 
+                fxFlex="calc(50% - 16px)" 
+                fxFlex.lt-md="100%">
+        <mat-card-header>
+          <mat-card-title>
+            {{ report.patient?.nom || 'Patient inconnu' }} {{ report.patient?.prenom || '' }}
+          </mat-card-title>
+          <mat-card-subtitle>
+            <mat-chip-set>
+              <mat-chip [color]="getStatusColor(report.intervention.status)" selected>
+                {{ report.intervention.status === 'en_cours' ? 'En cours' : 'Terminée' }}
+              </mat-chip>
+            </mat-chip-set>
+          </mat-card-subtitle>
+        </mat-card-header>
 
-      <ng-container matColumnDef="patient">
-        <th mat-header-cell *matHeaderCellDef> Patient </th>
-        <td mat-cell *matCellDef="let element"> {{element.patient}} </td>
-      </ng-container>
+        <mat-card-content>
+          <div fxLayout="column" fxLayoutGap="8px">
+            <div class="info-section">
+              <h3>Informations patient</h3>
+              <p *ngIf="report.patient">
+                Date de naissance: {{ report.patient.dateNaissance }}<br>
+                N° Sécu: {{ report.patient.numeroSecu }}
+              </p>
+              <p *ngIf="!report.patient" class="error-text">
+                Informations patient non disponibles
+              </p>
+            </div>
 
-      <ng-container matColumnDef="type">
-        <th mat-header-cell *matHeaderCellDef> Type </th>
-        <td mat-cell *matCellDef="let element"> {{element.type}} </td>
-      </ng-container>
+            <mat-divider></mat-divider>
 
-      <ng-container matColumnDef="status">
-        <th mat-header-cell *matHeaderCellDef> Statut </th>
-        <td mat-cell *matCellDef="let element">
-          <mat-chip-set>
-            <mat-chip [color]="element.status === 'Terminé' ? 'primary' : 'warn'" selected>
-              {{element.status}}
-            </mat-chip>
-          </mat-chip-set>
-        </td>
-      </ng-container>
+            <div class="info-section">
+              <h3>Équipe médicale</h3>
+              <p *ngIf="report.medecin">Médecin: Dr. {{ report.medecin.nom }} {{ report.medecin.prenom }}</p>
+              <p *ngIf="report.infirmier">Infirmier: {{ report.infirmier.nom }} {{ report.infirmier.prenom }}</p>
+              <p *ngIf="!report.medecin || !report.infirmier" class="error-text">
+                Informations équipe médicale incomplètes
+              </p>
+            </div>
 
-      <ng-container matColumnDef="actions">
-        <th mat-header-cell *matHeaderCellDef> Actions </th>
-        <td mat-cell *matCellDef="let element">
-          <button mat-icon-button [matMenuTriggerFor]="menu">
-            <mat-icon>more_vert</mat-icon>
+            <mat-divider></mat-divider>
+
+            <div class="info-section">
+              <h3>Constantes vitales</h3>
+              <div fxLayout="row wrap" fxLayoutGap="16px grid">
+                <div class="vital-sign" fxFlex="calc(50% - 16px)">
+                  <span class="label">SpO2</span>
+                  <span class="value">{{ report.intervention.currentVitals.values.spo2 }}%</span>
+                </div>
+                <div class="vital-sign" fxFlex="calc(50% - 16px)">
+                  <span class="label">ECG</span>
+                  <span class="value">{{ report.intervention.currentVitals.values.ecg }} bpm</span>
+                </div>
+                <div class="vital-sign" fxFlex="calc(50% - 16px)">
+                  <span class="label">Tension</span>
+                  <span class="value">{{ report.intervention.currentVitals.values.nibp }} mmHg</span>
+                </div>
+                <div class="vital-sign" fxFlex="calc(50% - 16px)">
+                  <span class="label">Température</span>
+                  <span class="value">{{ report.intervention.currentVitals.values.temperature }}°C</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </mat-card-content>
+
+        <mat-card-actions align="end">
+          <button mat-button color="primary">
+            <mat-icon>visibility</mat-icon>
+            VOIR DÉTAILS
           </button>
-          <mat-menu #menu="matMenu">
-            <button mat-menu-item>
-              <mat-icon>edit</mat-icon>
-              <span>Modifier</span>
-            </button>
-            <button mat-menu-item>
-              <mat-icon>delete</mat-icon>
-              <span>Supprimer</span>
-            </button>
-          </mat-menu>
-        </td>
-      </ng-container>
+          <button mat-button color="accent">
+            <mat-icon>print</mat-icon>
+            IMPRIMER
+          </button>
+        </mat-card-actions>
+      </mat-card>
+    </div>
+  </ng-container>
 
-      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-      <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
-    </table>
-
-    <mat-paginator [pageSizeOptions]="[5, 10, 20]" showFirstLastButtons></mat-paginator>
-  </mat-card>
+  <div *ngIf="loading" class="loading-state">
+    <mat-spinner diameter="40"></mat-spinner>
+    <p>Chargement des rapports...</p>
+  </div>
 </div>

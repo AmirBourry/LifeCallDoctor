@@ -1,55 +1,102 @@
 import { Injectable } from '@angular/core';
-import { Database, ref, onValue, set, push, DataSnapshot } from '@angular/fire/database';
-import { Observable } from 'rxjs';
+import { 
+  Firestore, 
+  collection, 
+  collectionData, 
+  query, 
+  where, 
+  Timestamp, 
+  Query,
+  getDocs,
+  DocumentData,
+  QueryDocumentSnapshot
+} from '@angular/fire/firestore';
+import { Observable, from } from 'rxjs';
+import { map } from 'rxjs/operators';
+
+export interface VitalSigns {
+  id?: string;
+  spo2: number;
+  ecg: number;
+  nibp: number;
+  temperature: number;
+  timestamp: Timestamp;
+}
+
+export interface Personnel {
+  id?: string;
+  nom: string;
+  prenom: string;
+  role: 'medecin' | 'infirmier';
+  specialite: string;
+  isAvailable: boolean;
+  lastActive: Timestamp;
+}
+
+export interface Patient {
+  id?: string;
+  nom: string;
+  prenom: string;
+  dateNaissance: string;
+  numeroSecu: string;
+  interventions: string[];
+}
 
 export interface Intervention {
-  id: string;
-  startTime: number;
+  id?: string;
+  startTime: Timestamp;
+  endTime: Timestamp | null;
   status: 'en_cours' | 'terminee';
   equipeId: string;
+  patientId: string;
   currentVitals: {
-    spo2: number;
-    ecg: number;
-    nibp: number;
-    temperature: number;
-    lastUpdate: number;
+    timestamp: Timestamp;
+    values: {
+      spo2: number;
+      ecg: number;
+      nibp: number;
+      temperature: number;
+    }
   };
+  isActive: boolean;
 }
 
 @Injectable({
   providedIn: 'root'
 })
 export class InterventionService {
-  constructor(private db: Database) {}
+  constructor(private firestore: Firestore) {}
+
+  private convertFirestoreData<T>(doc: QueryDocumentSnapshot<DocumentData>): T {
+    return { id: doc['id'], ...doc.data() } as T;
+  }
 
   getInterventions(): Observable<Intervention[]> {
-    return new Observable(subscriber => {
-      const interventionsRef = ref(this.db, 'interventions');
-      onValue(interventionsRef, (snapshot: DataSnapshot) => {
-        const data = snapshot.val();
-        const interventions = data ? Object.values(data) : [];
-        subscriber.next(interventions as Intervention[]);
-      });
-    });
+    const interventionsRef = collection(this.firestore, 'interventions');
+    return from(getDocs(query(interventionsRef))).pipe(
+      map(snapshot => snapshot.docs.map(doc => this.convertFirestoreData<Intervention>(doc)))
+    );
   }
 
-  async createIntervention(intervention: Omit<Intervention, 'id'>): Promise<string> {
-    const interventionsRef = ref(this.db, 'interventions');
-    const newInterventionRef = push(interventionsRef);
-    await set(newInterventionRef, {
-      ...intervention,
-      id: newInterventionRef.key
-    });
-    return newInterventionRef.key as string;
+  getPersonnel(): Observable<Personnel[]> {
+    const personnelRef = collection(this.firestore, 'personnel');
+    return from(getDocs(query(personnelRef))).pipe(
+      map(snapshot => snapshot.docs.map(doc => this.convertFirestoreData<Personnel>(doc)))
+    );
   }
 
-  getInterventionById(id: string): Observable<Intervention> {
-    return new Observable(subscriber => {
-      const interventionRef = ref(this.db, `interventions/${id}`);
-      onValue(interventionRef, (snapshot) => {
-        const data = snapshot.val();
-        subscriber.next(data as Intervention);
-      });
-    });
+  getPatients(): Observable<Patient[]> {
+    const patientsRef = collection(this.firestore, 'patients');
+    return from(getDocs(query(patientsRef))).pipe(
+      map(snapshot => snapshot.docs.map(doc => this.convertFirestoreData<Patient>(doc)))
+    );
+  }
+
+  getVitalSigns(interventionId: string): Observable<VitalSigns[]> {
+    const vitalsRef = collection(this.firestore, 'vitalSigns');
+    const vitalsQuery = query(vitalsRef, where('interventionId', '==', interventionId));
+    return from(getDocs(vitalsQuery)).pipe(
+      map(snapshot => snapshot.docs.map(doc => this.convertFirestoreData<VitalSigns>(doc)))
+    );
   }
 } 

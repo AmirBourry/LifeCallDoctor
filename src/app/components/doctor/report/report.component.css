@@ -3,17 +3,113 @@
   background-color: #F7F2FA;
   min-height: calc(100vh - 48px);
 }
+
 .header {
   margin-bottom: 16px;
 }
+
 h1 {
   margin: 0;
   color: #49454F;
+  font-size: 24px;
 }
-.search-field {
-  width: 100%;
+
+.info-section {
+  padding: 8px 0;
+}
+
+.info-section h3 {
+  color: #49454F;
+  font-size: 16px;
+  margin: 0 0 8px 0;
+}
+
+.info-section p {
+  margin: 4px 0;
+  color: #625B71;
+}
+
+.vital-sign {
+  background-color: #F7F2FA;
+  padding: 12px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.vital-sign .label {
+  font-size: 12px;
+  color: #49454F;
+}
+
+.vital-sign .value {
+  font-size: 18px;
+  font-weight: 500;
+  color: #1D192B;
+  margin-top: 4px;
+}
+
+mat-card {
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+mat-card-header {
   margin-bottom: 16px;
 }
-table {
-  width: 100%;
+
+mat-divider {
+  margin: 16px 0;
+}
+
+mat-card-actions button {
+  margin-left: 8px;
+}
+
+mat-icon {
+  margin-right: 4px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 48px;
+  background: white;
+  border-radius: 8px;
+  margin: 16px;
+}
+
+.empty-state mat-icon {
+  font-size: 48px;
+  height: 48px;
+  width: 48px;
+  color: #625B71;
+  margin-bottom: 16px;
+}
+
+.empty-state h2 {
+  color: #1D192B;
+  margin: 0 0 8px 0;
+}
+
+.empty-state p {
+  color: #625B71;
+  margin: 0;
+}
+
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 48px;
+}
+
+.loading-state p {
+  margin: 16px 0 0 0;
+  color: #625B71;
+}
+
+.error-text {
+  color: #B3261E;
+  font-size: 14px;
 }
