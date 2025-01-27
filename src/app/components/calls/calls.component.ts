@@ -1,59 +1,27 @@
-import {Component, OnInit} from '@angular/core';
-import {FlexModule} from '@ngbracket/ngx-layout';
-import {MatButton} from '@angular/material/button';
-import {CallItemComponent} from './call-item/call-item.component';
-import {NgForOf} from '@angular/common';
+import { Component } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import {CallsListComponent} from './call-list.component';
+import {CallInterfaceComponent} from './call-interface.component';
+import {WebRTCService} from '../../services/webrtc/webrtc.service';
 
 @Component({
   selector: 'app-calls',
-  imports: [
-    FlexModule,
-    MatButton,
-    CallItemComponent,
-    NgForOf
-  ],
-  templateUrl: './calls.component.html',
   standalone: true,
-  styleUrl: './calls.component.css'
+  imports: [
+    CommonModule,
+    CallsListComponent,
+    CallInterfaceComponent
+  ],
+  template: `
+    <ng-container *ngIf="webRTCService.callState$ | async as callState">
+      <!-- Liste des utilisateurs quand pas en appel -->
+      <app-calls-list *ngIf="!callState.isInCall"></app-calls-list>
+
+      <!-- Interface d'appel quand en appel -->
+      <app-call-interface *ngIf="callState.isInCall"></app-call-interface>
+    </ng-container>
+  `
 })
-
-export class CallsComponent implements OnInit {
-  activeFilter: 'priority' | 'time' = 'priority';
-  calls = [
-    {
-      priority: 5,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '12:54'
-    },
-    {
-      priority: 2,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '15:02'
-    },
-    {
-      priority: 1,
-      type: 'Accident de voiture',
-      address: '5 Boulevard Marchand',
-      city: '06600 Antibes',
-      time: '11:00'
-    },
-  ];
-
-  public ngOnInit() : void {
-    this.filterCalls();
-  }
-
-  public filterCalls() : void {
-    this.calls = this.calls.sort((a, b) => {
-      if (this.activeFilter === 'priority') {
-        return b.priority - a.priority;
-      } else {
-        return a.time.localeCompare(b.time);
-      }
-    });
-  }
+export class CallsComponent {
+  constructor(public webRTCService: WebRTCService) {}
 }
