@@ -1,5 +1,6 @@
 import { Component } from '@angular/core';
 import {NgForOf} from '@angular/common';
+import { LayoutService } from '../../services/layout/layout.service';
 
 interface VitalSign {
   icon: string;
@@ -17,6 +18,11 @@ interface VitalSign {
   styleUrls: ['./ems.component.css']
 })
 export class EmsComponent {
+
+  constructor(private readonly layoutService: LayoutService) {
+    this.layoutService.toggleSidebar(false);
+  }
+
   vitalSigns: VitalSign[] = [
     { icon: "❤️", label: "BPM", value: "95" },
     { icon: "🩺", label: "Tension", value: "95" },
