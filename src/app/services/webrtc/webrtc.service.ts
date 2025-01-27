@@ -190,8 +190,7 @@ export class WebRTCService {
           autoGainControl: true,
           channelCount: 1,
           sampleRate: 48000,
-          sampleSize: 16,
-          latency: 0.01
+          sampleSize: 16
         }
       });
 
@@ -200,7 +199,6 @@ export class WebRTCService {
         console.log('Audio track constraints:', constraints);
         
         track.applyConstraints({
-          ...constraints,
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true
@@ -243,10 +241,7 @@ export class WebRTCService {
     }
 
     console.log('Initializing new peer connection');
-    this.peerConnection = new RTCPeerConnection({
-      ...this.configuration,
-      sdpSemantics: 'unified-plan'
-    });
+    this.peerConnection = new RTCPeerConnection(this.configuration);
 
     this.peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
@@ -294,12 +289,14 @@ export class WebRTCService {
         
         remoteStream.getAudioTracks().forEach(track => {
           track.enabled = true;
-          if (track.getConstraints) {
+          try {
             track.applyConstraints({
               echoCancellation: true,
               noiseSuppression: true,
               autoGainControl: true
             }).catch(e => console.warn('Could not apply audio constraints:', e));
+          } catch (e) {
+            console.warn('Could not apply audio constraints:', e);
           }
         });
 
