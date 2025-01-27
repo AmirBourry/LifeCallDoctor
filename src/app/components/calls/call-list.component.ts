@@ -238,12 +238,13 @@ export class CallsListComponent implements OnInit, OnDestroy {
 
   async initiateCall(user: OnlineUser): Promise<void> {
     try {
+      const currentUser = await this.authService.user$.pipe(take(1)).toPromise();
+      if (!currentUser) return;
+
       if (user.status === 'in-call') {
-        const currentUser = await this.authService.user$.pipe(take(1)).toPromise();
-        if (currentUser) {
-          const sessionId = `${user.id}_${currentUser.uid}`;
-          await this.webRTCService.joinCall(sessionId, user.id);
-        }
+        // Créer l'ID de session en utilisant l'ID de l'autre utilisateur comme initiateur
+        const sessionId = `${user.id}_${currentUser.uid}`;
+        await this.webRTCService.acceptCall(sessionId, user.id);
       } else {
         await this.webRTCService.startCall(user.id);
       }
@@ -258,7 +259,6 @@ export class CallsListComponent implements OnInit, OnDestroy {
         dialogRef.afterClosed().subscribe(async result => {
           if (result) {
             try {
-              // Attendre un peu pour laisser l'utilisateur accorder les permissions
               await new Promise(resolve => setTimeout(resolve, 1000));
               await this.initiateCall(user);
             } catch (retryError) {

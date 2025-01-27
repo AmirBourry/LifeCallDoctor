@@ -2,7 +2,7 @@ import { Component, ViewChild, ElementRef, OnInit, OnDestroy } from '@angular/co
 import { CommonModule } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
-import { WebRTCService } from '../../services/webrtc/webrtc.service';
+import { WebRTCService, IncomingCall } from '../../services/webrtc/webrtc.service';
 import { AuthService } from '../../services/auth/auth.service';
 import { take } from 'rxjs/operators';
 import { Subscription } from 'rxjs';
@@ -15,7 +15,7 @@ import { Subscription } from 'rxjs';
     <div class="test-container">
       <mat-card class="test-card">
         <mat-card-header>
-          <mat-card-title>Test WebRTC</mat-card-title>
+          <mat-card-title>Test WebRTC (Interface Infirmier)</mat-card-title>
         </mat-card-header>
 
         <mat-card-content>
@@ -25,16 +25,32 @@ import { Subscription } from 'rxjs';
           </div>
 
           <div class="controls">
-            <button mat-raised-button color="primary" (click)="initiateCall()">
-              Démarrer l'appel test
-            </button>
-            <button mat-raised-button color="warn" (click)="endCall()">
+            <ng-container *ngIf="webRTCService.incomingCall$ | async as incomingCall">
+              <button mat-raised-button color="primary" (click)="acceptCall(incomingCall)">
+                Accepter l'appel
+              </button>
+              <button mat-raised-button color="warn" (click)="rejectCall()">
+                Refuser
+              </button>
+            </ng-container>
+
+            <button mat-raised-button color="warn" 
+                    *ngIf="(webRTCService.callState$ | async)?.isInCall"
+                    (click)="endCall()">
               Terminer l'appel
             </button>
           </div>
 
           <div class="status">
-            État de l'appel: {{(webRTCService.callState$ | async)?.isInCall ? 'En appel' : 'Pas d\'appel'}}
+            <ng-container *ngIf="webRTCService.incomingCall$ | async as incomingCall">
+              Appel entrant du Dr. {{incomingCall?.callerName || 'Inconnu'}}...
+            </ng-container>
+            <ng-container *ngIf="(webRTCService.callState$ | async)?.isInCall">
+              En appel
+            </ng-container>
+            <ng-container *ngIf="!(webRTCService.incomingCall$ | async) && !(webRTCService.callState$ | async)?.isInCall">
+              En attente d'appel
+            </ng-container>
           </div>
         </mat-card-content>
       </mat-card>
@@ -90,10 +106,13 @@ export class WebRTCTestComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.callStateSubscription = this.webRTCService.callState$.subscribe(state => {
+      console.log('Call state updated:', state);
       if (state.localStream && this.localVideo) {
+        console.log('Setting local video stream');
         this.localVideo.nativeElement.srcObject = state.localStream;
       }
       if (state.remoteStream && this.remoteVideo) {
+        console.log('Setting remote video stream');
         this.remoteVideo.nativeElement.srcObject = state.remoteStream;
       }
     });
@@ -104,16 +123,18 @@ export class WebRTCTestComponent implements OnInit, OnDestroy {
     this.endCall();
   }
 
-  async initiateCall() {
-    const user = await this.authService.user$.pipe(take(1)).toPromise();
-    if (user) {
-      this.webRTCService.startCall(user.uid);
-    } else {
-      console.error('Aucun utilisateur connecté');
-    }
+  async acceptCall(incomingCall: IncomingCall) {
+    console.log('Accepting call:', incomingCall);
+    await this.webRTCService.acceptCall(incomingCall.sessionId, incomingCall.callerId);
+  }
+
+  rejectCall() {
+    console.log('Rejecting call');
+    this.webRTCService.rejectCall();
   }
 
   endCall() {
+    console.log('Ending call');
     this.webRTCService.endCall();
     if (this.localVideo) {
       this.localVideo.nativeElement.srcObject = null;

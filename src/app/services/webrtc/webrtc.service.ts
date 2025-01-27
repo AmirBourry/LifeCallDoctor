@@ -9,7 +9,9 @@ import {
   onSnapshot,
   query,
   where,
-  updateDoc
+  updateDoc,
+  getDocs,
+  getDoc
 } from '@angular/fire/firestore';
 import { AuthService } from '../auth/auth.service';
 
@@ -32,14 +34,21 @@ export interface CallState {
   callStartTime: Date | null;
 }
 
+export interface IncomingCall {
+  sessionId: string;
+  callerId: string;
+  callerName: string;
+}
+
 interface RTCSignalingMessage {
-  type: 'offer' | 'answer' | 'ice-candidate';
+  type: 'offer' | 'answer' | 'ice-candidate' | 'call-request' | 'call-accepted';
   from: string;
   to: string;
   sessionData: {
     sdp?: string;
     type?: RTCSdpType;
     candidate?: RTCIceCandidateInit;
+    callerName?: string;
   };
   timestamp: Date;
 }
@@ -79,11 +88,28 @@ export class WebRTCService {
     ]
   };
 
+  private incomingCallSubject = new BehaviorSubject<IncomingCall | null>(null);
+  readonly incomingCall$ = this.incomingCallSubject.asObservable();
+
   constructor(
     private firestore: Firestore,
     private authService: AuthService
   ) {
-    this.setupSignalingHandlers();
+    console.log('WebRTCService constructor');
+    this.authService.user$.subscribe(user => {
+      console.log('Current user:', user?.uid);
+      if (user) {
+        if (this.signalingUnsubscribe) {
+          this.signalingUnsubscribe();
+        }
+        this.setupSignalingHandlers();
+      } else {
+        if (this.signalingUnsubscribe) {
+          this.signalingUnsubscribe();
+          this.signalingUnsubscribe = null;
+        }
+      }
+    });
   }
 
   getOnlineUsers(): Observable<OnlineUser[]> {
@@ -108,35 +134,19 @@ export class WebRTCService {
       const user = await this.authService.user$.pipe(take(1)).toPromise();
       if (!user) throw new Error('User not authenticated');
 
-      if (!await this.checkMediaPermissions()) {
-        throw new Error('Les permissions de média sont nécessaires pour passer un appel');
-      }
-
+      console.log('Starting call to:', targetUserId);
       this.currentSessionId = `${user.uid}_${targetUserId}`;
-      const localStream = await this.getLocalStream();
-      await this.initializePeerConnection(localStream);
 
-      const offer = await this.peerConnection!.createOffer();
-      await this.peerConnection!.setLocalDescription(offer);
-
+      // Envoyer une demande d'appel
       await this.sendSignalingMessage({
-        type: 'offer',
+        type: 'call-request',
         from: user.uid,
         to: targetUserId,
         sessionData: {
-          sdp: offer.sdp,
-          type: offer.type
+          callerName: user.displayName || 'Médecin'
         },
         timestamp: new Date()
       });
-
-      this.updateCallState({
-        isInCall: true,
-        localStream,
-        callStartTime: new Date()
-      });
-
-      await this.updateUserStatus('in-call');
 
     } catch (error) {
       console.error('Error starting call:', error);
@@ -195,39 +205,41 @@ export class WebRTCService {
 
     console.log('Adding local tracks to peer connection');
     localStream.getTracks().forEach(track => {
+      console.log('Adding track to peer connection:', track.kind);
       this.peerConnection!.addTrack(track, localStream);
     });
 
+    // Mettre à jour l'état avec le flux local immédiatement
+    this.updateCallState({
+      localStream,
+      isInCall: true
+    });
+
     this.peerConnection.ontrack = (event) => {
-      console.log('Received remote track:', event);
+      console.log('Received remote track:', event.track.kind);
       if (event.streams && event.streams[0]) {
-        const currentState = this.callStateSubject.value;
         console.log('Updating call state with remote stream');
-        this.callStateSubject.next({
-          ...currentState,
-          remoteStream: event.streams[0]
+        const remoteStream = event.streams[0];
+        
+        // S'assurer que tous les tracks sont activés
+        remoteStream.getTracks().forEach(track => {
+          track.enabled = true;
+          console.log(`Remote ${track.kind} track enabled:`, track.enabled);
+        });
+
+        this.updateCallState({
+          remoteStream,
+          isInCall: true
         });
       }
     };
 
-    this.peerConnection.onicecandidate = async (event) => {
-      if (event.candidate) {
-        const user = await this.authService.user$.pipe(take(1)).toPromise();
-        if (!user || !this.currentSessionId) return;
+    this.peerConnection.oniceconnectionstatechange = () => {
+      console.log('ICE connection state:', this.peerConnection?.iceConnectionState);
+    };
 
-        const [caller, callee] = this.currentSessionId.split('_');
-        const targetUserId = user.uid === caller ? callee : caller;
-
-        await this.sendSignalingMessage({
-          type: 'ice-candidate',
-          from: user.uid,
-          to: targetUserId,
-          sessionData: {
-            candidate: event.candidate.toJSON()
-          },
-          timestamp: new Date()
-        });
-      }
+    this.peerConnection.onconnectionstatechange = () => {
+      console.log('Connection state:', this.peerConnection?.connectionState);
     };
 
     this.setupDataChannel();
@@ -257,19 +269,51 @@ export class WebRTCService {
     if (!user) return;
 
     try {
-      if (!this.peerConnection) {
+      if (!this.peerConnection && message.type !== 'call-request') {
+        console.log('Initializing peer connection for incoming message');
         const localStream = await this.getLocalStream();
         await this.initializePeerConnection(localStream);
-        
-        this.updateCallState({
-          localStream,
-          isInCall: true,
-          callStartTime: new Date()
-        });
       }
 
       switch (message.type) {
+        case 'call-request':
+          console.log('Received call request from:', message.from);
+          this.incomingCallSubject.next({
+            sessionId: `${message.from}_${user.uid}`,
+            callerId: message.from,
+            callerName: message.sessionData.callerName || 'Unknown'
+          });
+          break;
+
+        case 'call-accepted':
+          console.log('Call accepted by:', message.from);
+          const localStream = await this.getLocalStream();
+          await this.initializePeerConnection(localStream);
+          
+          this.updateCallState({
+            isInCall: true,
+            localStream,
+            callStartTime: new Date()
+          });
+
+          // Créer et envoyer l'offre
+          const offer = await this.peerConnection!.createOffer();
+          await this.peerConnection!.setLocalDescription(offer);
+
+          await this.sendSignalingMessage({
+            type: 'offer',
+            from: user.uid,
+            to: message.from,
+            sessionData: {
+              sdp: offer.sdp,
+              type: offer.type
+            },
+            timestamp: new Date()
+          });
+          break;
+
         case 'offer':
+          console.log('Received offer, setting remote description');
           if (message.sessionData.sdp && message.sessionData.type) {
             await this.peerConnection!.setRemoteDescription(
               new RTCSessionDescription({
@@ -278,11 +322,7 @@ export class WebRTCService {
               })
             );
 
-            for (const candidate of this.pendingCandidates) {
-              await this.peerConnection!.addIceCandidate(candidate);
-            }
-            this.pendingCandidates = [];
-
+            console.log('Creating answer');
             const answer = await this.peerConnection!.createAnswer();
             await this.peerConnection!.setLocalDescription(answer);
 
@@ -300,6 +340,7 @@ export class WebRTCService {
           break;
 
         case 'answer':
+          console.log('Received answer, setting remote description');
           if (message.sessionData.sdp && message.sessionData.type) {
             await this.peerConnection!.setRemoteDescription(
               new RTCSessionDescription({
@@ -307,57 +348,135 @@ export class WebRTCService {
                 type: message.sessionData.type
               })
             );
-
-            for (const candidate of this.pendingCandidates) {
-              await this.peerConnection!.addIceCandidate(candidate);
-            }
-            this.pendingCandidates = [];
           }
           break;
 
         case 'ice-candidate':
+          console.log('Received ICE candidate');
           if (message.sessionData.candidate) {
-            const candidate = new RTCIceCandidate(message.sessionData.candidate);
-            if (this.peerConnection?.remoteDescription) {
-              await this.peerConnection.addIceCandidate(candidate);
-            } else {
-              this.pendingCandidates.push(candidate);
+            try {
+              await this.peerConnection!.addIceCandidate(
+                new RTCIceCandidate(message.sessionData.candidate)
+              );
+            } catch (e) {
+              console.error('Error adding received ice candidate:', e);
             }
           }
           break;
       }
     } catch (error) {
       console.error('Error handling signaling message:', error);
+      throw error;
     }
   }
 
   private setupSignalingHandlers(): void {
-    this.authService.user$.pipe(take(1)).subscribe(user => {
-      if (!user) return;
+    console.log('Setting up signaling handlers');
+    if (this.signalingUnsubscribe) {
+      console.log('Cleaning up previous signaling handler');
+      this.signalingUnsubscribe();
+    }
 
-      const rtcSessionsRef = collection(this.firestore, 'rtcSessions');
+    this.authService.user$.pipe(take(1)).subscribe(user => {
+      if (!user) {
+        console.log('No user found for signaling setup');
+        return;
+      }
+
+      console.log('Setting up signaling handlers for user:', user.uid);
+      const rtcSignalingRef = collection(this.firestore, 'rtcSignaling');
+      
+      // Log the query parameters
+      const q = query(rtcSignalingRef, where('to', '==', user.uid));
+      console.log('Signaling query:', q);
       
       this.signalingUnsubscribe = onSnapshot(
-        query(rtcSessionsRef, where('to', '==', user.uid)),
+        q,
         async (snapshot) => {
-          snapshot.docChanges().forEach(async change => {
+          console.log('Signaling snapshot received, docs count:', snapshot.docs.length);
+          for (const change of snapshot.docChanges()) {
+            console.log('Document change type:', change.type);
             if (change.type === 'added') {
               const message = change.doc.data() as RTCSignalingMessage;
-              await this.handleSignalingMessage(message);
+              console.log('New signaling message received:', message);
+              
+              try {
+                await this.handleSignalingMessage(message);
+                console.log('Message handled successfully, deleting document');
+                await deleteDoc(change.doc.ref);
+              } catch (error) {
+                console.error('Error handling signaling message:', error);
+              }
             }
-          });
+          }
+        },
+        (error) => {
+          console.error('Error in signaling handler:', error);
         }
       );
+
+      // Vérifier immédiatement s'il y a des messages en attente
+      this.checkPendingMessages(user.uid);
     });
   }
 
-  private async sendSignalingMessage(message: RTCSignalingMessage): Promise<void> {
-    console.log('Sending signaling message:', message);
+  // Nouvelle méthode pour vérifier les messages en attente
+  private async checkPendingMessages(userId: string) {
     try {
-      const sessionDoc = doc(this.firestore, 'rtcSessions', this.currentSessionId!);
-      await setDoc(sessionDoc, message);
+      const rtcSignalingRef = collection(this.firestore, 'rtcSignaling');
+      const q = query(rtcSignalingRef, where('to', '==', userId));
+      const snapshot = await getDocs(q);
+      
+      console.log('Checking pending messages, found:', snapshot.docs.length);
+      
+      for (const doc of snapshot.docs) {
+        const message = doc.data() as RTCSignalingMessage;
+        console.log('Processing pending message:', message);
+        
+        try {
+          await this.handleSignalingMessage(message);
+          await deleteDoc(doc.ref);
+        } catch (error) {
+          console.error('Error handling pending message:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking pending messages:', error);
+    }
+  }
+
+  private async sendSignalingMessage(message: RTCSignalingMessage): Promise<void> {
+    console.log('Preparing to send signaling message:', message);
+    try {
+      if (message.from === message.to) {
+        console.error('Tentative d\'envoi d\'un message à soi-même');
+        return;
+      }
+
+      // Utiliser un ID unique pour chaque message
+      const messageId = `${Date.now()}_${message.from}_${message.to}`;
+      const messageDoc = doc(this.firestore, 'rtcSignaling', messageId);
+      
+      // Convertir la date en Timestamp Firestore
+      const messageWithTimestamp = {
+        ...message,
+        timestamp: new Date()
+      };
+
+      console.log('Writing message to Firestore:', messageId, messageWithTimestamp);
+      await setDoc(messageDoc, messageWithTimestamp);
+      console.log('Message sent successfully:', messageId);
+
+      // Vérifier immédiatement que le message a été écrit
+      const docSnap = await getDoc(messageDoc);
+      if (docSnap.exists()) {
+        console.log('Message verified in Firestore:', docSnap.data());
+      } else {
+        console.error('Message not found after writing!');
+      }
     } catch (error) {
       console.error('Error sending signaling message:', error);
+      throw error;
     }
   }
 
@@ -397,10 +516,16 @@ export class WebRTCService {
         this.signalingUnsubscribe = null;
       }
 
-      if (this.currentSessionId) {
-        const sessionDoc = doc(this.firestore, 'rtcSessions', this.currentSessionId);
-        await deleteDoc(sessionDoc);
-        this.currentSessionId = null;
+      // Nettoyer les messages de signalisation
+      const user = await this.authService.user$.pipe(take(1)).toPromise();
+      if (user) {
+        const rtcSignalingRef = collection(this.firestore, 'rtcSignaling');
+        const q = query(rtcSignalingRef, 
+          where('to', '==', user.uid));
+        const snapshot = await getDocs(q);
+        for (const doc of snapshot.docs) {
+          await deleteDoc(doc.ref);
+        }
       }
 
       this.callStateSubject.next({
@@ -455,47 +580,46 @@ export class WebRTCService {
     });
   }
 
-  async joinCall(sessionId: string, targetUserId: string): Promise<void> {
+  async acceptCall(sessionId: string, callerId: string): Promise<void> {
     try {
       const user = await this.authService.user$.pipe(take(1)).toPromise();
       if (!user) throw new Error('User not authenticated');
 
-      if (!await this.checkMediaPermissions()) {
-        throw new Error('Les permissions de média sont nécessaires pour rejoindre un appel');
-      }
-
+      console.log('Accepting call from:', callerId);
       this.currentSessionId = sessionId;
       const localStream = await this.getLocalStream();
       await this.initializePeerConnection(localStream);
 
-      this.updateCallState({
-        isInCall: true,
-        localStream,
-        callStartTime: new Date()
-      });
-
       await this.updateUserStatus('in-call');
 
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      const offer = await this.peerConnection!.createOffer();
-      await this.peerConnection!.setLocalDescription(offer);
-
+      // Envoyer l'acceptation
       await this.sendSignalingMessage({
-        type: 'offer',
+        type: 'call-accepted',
         from: user.uid,
-        to: targetUserId,
-        sessionData: {
-          sdp: offer.sdp,
-          type: offer.type
-        },
+        to: callerId,
+        sessionData: {},
         timestamp: new Date()
       });
 
+      this.incomingCallSubject.next(null);
+
+      // Vérifier périodiquement l'état de la connexion
+      const checkInterval = setInterval(() => {
+        this.checkConnectionState();
+        if (!this.callStateSubject.value.isInCall) {
+          clearInterval(checkInterval);
+        }
+      }, 1000);
+
     } catch (error) {
-      console.error('Error joining call:', error);
+      console.error('Error accepting call:', error);
       this.endCall();
     }
+  }
+
+  rejectCall(): void {
+    this.incomingCallSubject.next(null);
+    // Optionnel : envoyer un message de rejet au appelant
   }
 
   private async checkMediaPermissions(): Promise<boolean> {
@@ -513,6 +637,19 @@ export class WebRTCService {
     } catch (error) {
       console.error('Erreur lors de la vérification des permissions:', error);
       return false;
+    }
+  }
+
+  // Ajouter une méthode pour vérifier l'état de la connexion
+  private checkConnectionState(): void {
+    if (this.peerConnection) {
+      console.log({
+        iceConnectionState: this.peerConnection.iceConnectionState,
+        connectionState: this.peerConnection.connectionState,
+        signalingState: this.peerConnection.signalingState,
+        hasLocalStream: !!this.callStateSubject.value.localStream,
+        hasRemoteStream: !!this.callStateSubject.value.remoteStream
+      });
     }
   }
 }
