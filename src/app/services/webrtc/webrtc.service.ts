@@ -423,119 +423,125 @@ export class WebRTCService {
           if (!this.peerConnection) {
             const localStream = await this.getLocalStream();
             await this.initializePeerConnection(localStream);
-          }
-          
-          // Créer et envoyer l'offre
-          const offer = await this.peerConnection!.createOffer();
-          await this.peerConnection!.setLocalDescription(offer);
-
-          await this.sendSignalingMessage({
-            type: 'offer',
-            from: user.uid,
-            to: message.from,
-            sessionData: {
-              sdp: offer.sdp,
-              type: offer.type
-            },
-            timestamp: new Date()
-          });
-          break;
-
-        case 'offer':
-          console.log('Received offer');
-          if (!this.peerConnection) {
-            const localStream = await this.getLocalStream();
-            await this.initializePeerConnection(localStream);
-          }
-
-          if (message.sessionData.sdp && message.sessionData.type) {
-            await this.peerConnection!.setRemoteDescription(
-              new RTCSessionDescription({
-                sdp: message.sessionData.sdp,
-                type: message.sessionData.type
-              })
-            );
-
-            console.log('Remote description set, creating answer');
-            const answer = await this.peerConnection!.createAnswer();
-            await this.peerConnection!.setLocalDescription(answer);
-
-            // Traiter les candidats ICE en attente après avoir établi les descriptions
-            console.log('Processing pending ICE candidates:', this.pendingIceCandidates.length);
-            while (this.pendingIceCandidates.length > 0) {
-              const candidate = this.pendingIceCandidates.shift();
-              if (candidate) {
-                try {
-                  await this.peerConnection!.addIceCandidate(new RTCIceCandidate(candidate));
-                  console.log('Successfully added pending ICE candidate');
-                } catch (e) {
-                  console.warn('Failed to add pending ICE candidate:', e);
-                }
-              }
-            }
+            
+            // Créer et envoyer l'offre
+            const offer = await this.peerConnection!.createOffer();
+            await this.peerConnection!.setLocalDescription(offer);
 
             await this.sendSignalingMessage({
-              type: 'answer',
+              type: 'offer',
               from: user.uid,
               to: message.from,
               sessionData: {
-                sdp: answer.sdp,
-                type: answer.type
+                sdp: offer.sdp,
+                type: offer.type
               },
               timestamp: new Date()
             });
           }
           break;
 
-        case 'answer':
-          console.log('Received answer');
-          if (message.sessionData.sdp && message.sessionData.type && this.peerConnection) {
-            await this.peerConnection.setRemoteDescription(
-              new RTCSessionDescription({
-                sdp: message.sessionData.sdp,
-                type: message.sessionData.type
-              })
-            );
+        case 'offer':
+          console.log('Received offer, current signaling state:', this.peerConnection?.signalingState);
+          if (!this.peerConnection) {
+            const localStream = await this.getLocalStream();
+            await this.initializePeerConnection(localStream);
+          }
 
-            // Traiter les candidats ICE en attente après avoir établi les descriptions
-            console.log('Processing pending ICE candidates:', this.pendingIceCandidates.length);
-            while (this.pendingIceCandidates.length > 0) {
-              const candidate = this.pendingIceCandidates.shift();
-              if (candidate) {
-                try {
-                  await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-                  console.log('Successfully added pending ICE candidate');
-                } catch (e) {
-                  console.warn('Failed to add pending ICE candidate:', e);
-                }
-              }
+          if (message.sessionData.sdp && message.sessionData.type) {
+            // Vérifier l'état avant de définir la description distante
+            if (this.peerConnection?.signalingState === 'stable' || 
+                this.peerConnection?.signalingState === 'have-local-offer') {
+              await this.peerConnection!.setRemoteDescription(
+                new RTCSessionDescription({
+                  sdp: message.sessionData.sdp,
+                  type: message.sessionData.type
+                })
+              );
+
+              const answer = await this.peerConnection!.createAnswer();
+              await this.peerConnection!.setLocalDescription(answer);
+
+              await this.sendSignalingMessage({
+                type: 'answer',
+                from: user.uid,
+                to: message.from,
+                sessionData: {
+                  sdp: answer.sdp,
+                  type: answer.type
+                },
+                timestamp: new Date()
+              });
+
+              // Traiter les candidats ICE en attente
+              await this.processPendingIceCandidates();
+            } else {
+              console.warn('Invalid signaling state for offer:', this.peerConnection?.signalingState);
             }
           }
           break;
 
-        case 'ice-candidate':
-          console.log('Received ICE candidate');
-          if (message.sessionData.candidate) {
-            if (!this.peerConnection || !this.peerConnection.remoteDescription) {
-              console.log('Queuing ICE candidate for later');
-              this.pendingIceCandidates.push(message.sessionData.candidate);
-            } else {
-              try {
-                await this.peerConnection.addIceCandidate(
-                  new RTCIceCandidate(message.sessionData.candidate)
-                );
-                console.log('Successfully added ICE candidate:', message.sessionData.candidate.candidate);
-              } catch (e) {
-                console.warn('Failed to add ICE candidate, queuing for later:', e);
-                this.pendingIceCandidates.push(message.sessionData.candidate);
-              }
+        case 'answer':
+          console.log('Received answer, current signaling state:', this.peerConnection?.signalingState);
+          if (this.peerConnection?.signalingState === 'have-local-offer') {
+            if (message.sessionData.sdp && message.sessionData.type) {
+              await this.peerConnection.setRemoteDescription(
+                new RTCSessionDescription({
+                  sdp: message.sessionData.sdp,
+                  type: message.sessionData.type
+                })
+              );
+
+              // Traiter les candidats ICE en attente
+              await this.processPendingIceCandidates();
             }
+          } else {
+            console.warn('Invalid signaling state for answer:', this.peerConnection?.signalingState);
           }
+          break;
+
+        case 'ice-candidate':
+          await this.handleIceCandidate(message);
           break;
       }
     } catch (error) {
       console.error('Error handling signaling message:', error);
       throw error;
+    }
+  }
+
+  private async handleIceCandidate(message: RTCSignalingMessage): Promise<void> {
+    if (!message.sessionData.candidate) return;
+
+    if (!this.peerConnection || !this.peerConnection.remoteDescription) {
+      console.log('Queuing ICE candidate for later');
+      this.pendingIceCandidates.push(message.sessionData.candidate);
+      return;
+    }
+
+    try {
+      await this.peerConnection.addIceCandidate(
+        new RTCIceCandidate(message.sessionData.candidate)
+      );
+      console.log('Successfully added ICE candidate:', message.sessionData.candidate.candidate);
+    } catch (e) {
+      console.warn('Failed to add ICE candidate, queuing for later:', e);
+      this.pendingIceCandidates.push(message.sessionData.candidate);
+    }
+  }
+
+  private async processPendingIceCandidates(): Promise<void> {
+    console.log('Processing pending ICE candidates:', this.pendingIceCandidates.length);
+    while (this.pendingIceCandidates.length > 0) {
+      const candidate = this.pendingIceCandidates.shift();
+      if (candidate && this.peerConnection) {
+        try {
+          await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+          console.log('Successfully added pending ICE candidate');
+        } catch (e) {
+          console.warn('Failed to add pending ICE candidate:', e);
+        }
+      }
     }
   }
 
