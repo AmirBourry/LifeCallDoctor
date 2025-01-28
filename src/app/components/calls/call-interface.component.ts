@@ -58,27 +58,42 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
             </span>
           </div>
         </div>
+        
         <!-- Vitals Overlay -->
-        <div class="vitals-overlay" *ngIf="currentVitals && isSensorConnected">
-          <div class="vital-sign" [class.warning]="!isNormalScenario">
-            <span class="label">SpO2</span>
-            <span class="value">{{currentVitals.spo2 | number:'1.0-0'}}%</span>
+        <div class="vitals-overlay">
+          <div class="warning-banner sensor-warning" *ngIf="!isSensorConnected">
+            <mat-icon class="warning-icon">sensors_off</mat-icon>
+            <span class="warning-text">Capteurs déconnectés</span>
           </div>
-          <div class="vital-sign" [class.warning]="!isNormalScenario">
-            <span class="label">BPM</span>
-            <span class="value">{{currentVitals.ecg | number:'1.0-0'}}</span>
+
+          <div class="warning-banner connection-warning" *ngIf="!isConnectionStable && isSensorConnected">
+            <mat-icon class="warning-icon">signal_wifi_statusbar_connected_no_internet_4</mat-icon>
+            <span class="warning-text">Connexion instable</span>
           </div>
-          <div class="vital-sign" [class.warning]="!isNormalScenario">
-            <span class="label">BP</span>
-            <span class="value">{{currentVitals.nibp.systolic | number:'1.0-0'}}/{{currentVitals.nibp.diastolic | number:'1.0-0'}}</span>
-          </div>
-          <div class="vital-sign" [class.warning]="!isNormalScenario">
-            <span class="label">Temp</span>
-            <span class="value">{{currentVitals.temperature | number:'1.1-1'}}°C</span>
-          </div>
-          <div class="warning-message" *ngIf="!isNormalScenario">
-            ⚠️ Attention : Signes vitaux anormaux, un risque de {{getScenarioLabel(currentVitals.scenario)}} détecté !
-          </div>
+
+          @if(currentVitals) {
+            <div class="vitals-row">
+              <div class="vital-sign" [class.warning]="!isNormalScenario">
+                <span class="label">SpO2</span>
+                <span class="value">{{currentVitals.spo2 | number:'1.0-0'}}%</span>
+              </div>
+              <div class="vital-sign" [class.warning]="!isNormalScenario">
+                <span class="label">BPM</span>
+                <span class="value">{{currentVitals.ecg | number:'1.0-0'}}</span>
+              </div>
+              <div class="vital-sign" [class.warning]="!isNormalScenario">
+                <span class="label">BP</span>
+                <span class="value">{{currentVitals.nibp.systolic | number:'1.0-0'}}/{{currentVitals.nibp.diastolic | number:'1.0-0'}}</span>
+              </div>
+              <div class="vital-sign" [class.warning]="!isNormalScenario">
+                <span class="label">Temp</span>
+                <span class="value">{{currentVitals.temperature | number:'1.1-1'}}°C</span>
+              </div>
+            </div>
+            <div class="warning-message" *ngIf="!isNormalScenario">
+              ⚠️ Attention : Signes vitaux anormaux, un risque de {{getScenarioLabel(currentVitals.scenario)}} détecté !
+            </div>
+          }
         </div>
 
         <div class="call-controls">
@@ -204,9 +219,6 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
     }
 
     .warning-message {
-      position: absolute;
-      top: 65px;
-      left: 0;
       width: 100%;
       text-align: center;
       color: white;
@@ -234,6 +246,51 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
     .sensor-warning .warning-icon {
       color: white;
     }
+
+
+    .vitals-overlay {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      position: absolute;
+      top: 170px;
+      left: 50%;
+      transform: translateX(-50%) scale(1.5);
+      display: flex;
+      gap: 16px;
+      padding: 12px;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(8px);
+      border-radius: 12px;
+    }
+
+    .vital-sign {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: white;
+    }
+
+    .vital-sign .label {
+      font-size: 12px;
+      opacity: 0.8;
+    }
+
+    .vital-sign .value {
+      font-size: 18px;
+      font-weight: 500;
+      margin-top: 4px;
+    }
+
+    .vitals-row {
+      display: flex;
+      flex-direction: row;
+      gap: 10px;
+    }
+
+    .warning-text {
+      color: white;
+    }
   `]
 })
 export class CallInterfaceComponent implements OnInit, OnDestroy {
@@ -255,6 +312,7 @@ export class CallInterfaceComponent implements OnInit, OnDestroy {
   currentVitals: VitalSigns | null = null;
   isNormalScenario: boolean = false;
   isSensorConnected: boolean = false;
+  isConnectionStable: boolean = true;
   lastVitalsUpdate: number = Date.now();
   vitalsCheckInterval?: any;
 
@@ -274,6 +332,7 @@ export class CallInterfaceComponent implements OnInit, OnDestroy {
         this.currentVitals = vitals;
         this.isNormalScenario = vitals?.scenario === 'normal';
         this.isSensorConnected = true;
+        this.isConnectionStable = true;
         this.lastVitalsUpdate = Date.now();
       }
     });
@@ -281,7 +340,8 @@ export class CallInterfaceComponent implements OnInit, OnDestroy {
     this.vitalsCheckInterval = setInterval(() => {
       const timeSinceLastUpdate = Date.now() - this.lastVitalsUpdate;
       this.isSensorConnected = timeSinceLastUpdate < 5000;
-    }, 1000);
+      this.isConnectionStable = timeSinceLastUpdate < 1500;
+    }, 300);
   }
 
   ngOnInit(): void {

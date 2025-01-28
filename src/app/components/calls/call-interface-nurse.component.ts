@@ -21,36 +21,42 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
         </span>
       </div>
 
-      <div class="vitals-overlay" *ngIf="!isSensorConnected">
-          <div class="warning-banner sensor-warning" >
-            <mat-icon class="warning-icon">sensors_off</mat-icon>
-            <span class="warning-text">
-              Capteurs déconnectés
-            </span>
-          </div>
+      <!-- Vitals Overlay -->
+      <div class="vitals-overlay">
+        <div class="warning-banner sensor-warning" *ngIf="!isSensorConnected">
+          <mat-icon class="warning-icon">sensors_off</mat-icon>
+          <span class="warning-text">Capteurs déconnectés</span>
         </div>
-        <!-- Vitals Overlay -->
-        <div class="vitals-overlay" *ngIf="currentVitals && isSensorConnected">
-          <div class="vital-sign" [class.warning]="!isNormalScenario">
-            <span class="label">SpO2</span>
-            <span class="value">{{currentVitals.spo2 | number:'1.0-0'}}%</span>
-          </div>
-          <div class="vital-sign" [class.warning]="!isNormalScenario">
-            <span class="label">BPM</span>
-            <span class="value">{{currentVitals.ecg | number:'1.0-0'}}</span>
-          </div>
-          <div class="vital-sign" [class.warning]="!isNormalScenario">
-            <span class="label">BP</span>
-            <span class="value">{{currentVitals.nibp.systolic | number:'1.0-0'}}/{{currentVitals.nibp.diastolic | number:'1.0-0'}}</span>
-          </div>
-          <div class="vital-sign" [class.warning]="!isNormalScenario">
-            <span class="label">Temp</span>
-            <span class="value">{{currentVitals.temperature | number:'1.1-1'}}°C</span>
+
+        <div class="warning-banner connection-warning" *ngIf="!isConnectionStable && isSensorConnected">
+          <mat-icon class="warning-icon">signal_wifi_statusbar_connected_no_internet_4</mat-icon>
+          <span class="warning-text">Connexion instable</span>
+        </div>
+
+        @if(currentVitals) {
+          <div class="vitals-row">
+            <div class="vital-sign" [class.warning]="!isNormalScenario">
+              <span class="label">SpO2</span>
+              <span class="value">{{currentVitals.spo2 | number:'1.0-0'}}%</span>
+            </div>
+            <div class="vital-sign" [class.warning]="!isNormalScenario">
+              <span class="label">BPM</span>
+              <span class="value">{{currentVitals.ecg | number:'1.0-0'}}</span>
+            </div>
+            <div class="vital-sign" [class.warning]="!isNormalScenario">
+              <span class="label">BP</span>
+              <span class="value">{{currentVitals.nibp.systolic | number:'1.0-0'}}/{{currentVitals.nibp.diastolic | number:'1.0-0'}}</span>
+            </div>
+            <div class="vital-sign" [class.warning]="!isNormalScenario">
+              <span class="label">Temp</span>
+              <span class="value">{{currentVitals.temperature | number:'1.1-1'}}°C</span>
+            </div>
           </div>
           <div class="warning-message" *ngIf="!isNormalScenario">
             ⚠️ Attention : Signes vitaux anormaux, un risque de {{getScenarioLabel(currentVitals.scenario)}} détecté !
           </div>
-        </div>
+        }
+      </div>
 
       <div class="call-controls">
         <button mat-fab color="primary" (click)="toggleMute()">
@@ -95,9 +101,6 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
     }
 
     .warning-message {
-      position: absolute;
-      top: 65px;
-      left: 0;
       width: 100%;
       text-align: center;
       color: white;
@@ -127,6 +130,9 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
     }
 
     .vitals-overlay {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
       position: absolute;
       top: 170px;
       left: 50%;
@@ -156,6 +162,26 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
       font-weight: 500;
       margin-top: 4px;
     }
+
+    .vitals-row {
+      display: flex;
+      flex-direction: row;
+      gap: 10px;
+    }
+
+    .warning-text {
+      color: white;
+    }
+
+    .warning-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      backdrop-filter: blur(8px);
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
   `]
 })
 export class CallInterfaceNurseComponent implements OnInit {
@@ -169,6 +195,7 @@ export class CallInterfaceNurseComponent implements OnInit {
   currentVitals: VitalSigns | null = null;
   isNormalScenario: boolean = false;
   isSensorConnected: boolean = false;
+  isConnectionStable: boolean = true;
   lastVitalsUpdate: number = Date.now();
   vitalsCheckInterval?: any;
 
@@ -178,20 +205,22 @@ export class CallInterfaceNurseComponent implements OnInit {
     this.callDuration$ = this.webRTCService.getCallDuration$();
 
     this.socket$ = webSocket('wss://websocket.chhilif.com/ws');
-      this.socket$.subscribe({
-        next: (data) => {
-          const vitals = data as VitalSigns;
-          this.currentVitals = vitals;
-          this.isNormalScenario = vitals?.scenario === 'normal';
-          this.isSensorConnected = true;
-          this.lastVitalsUpdate = Date.now();
-        }
-      });
-      
-      this.vitalsCheckInterval = setInterval(() => {
-        const timeSinceLastUpdate = Date.now() - this.lastVitalsUpdate;
-        this.isSensorConnected = timeSinceLastUpdate < 5000;
-      }, 1000);
+    this.socket$.subscribe({
+      next: (data) => {
+        const vitals = data as VitalSigns;
+        this.currentVitals = vitals;
+        this.isNormalScenario = vitals?.scenario === 'normal';
+        this.isSensorConnected = true;
+        this.isConnectionStable = true;
+        this.lastVitalsUpdate = Date.now();
+      }
+    });
+
+    this.vitalsCheckInterval = setInterval(() => {
+      const timeSinceLastUpdate = Date.now() - this.lastVitalsUpdate;
+      this.isSensorConnected = timeSinceLastUpdate < 5000;
+      this.isConnectionStable = timeSinceLastUpdate < 1500;
+    }, 300);
   }
 
   getScenarioLabel(scenario: string): string {
@@ -215,4 +244,4 @@ export class CallInterfaceNurseComponent implements OnInit {
   endCall() {
     this.webRTCService.endCall();
   }
-} 
+}
