@@ -7,6 +7,7 @@ import { RegisterComponent } from './components/auth/register/register.component
 import { LoginComponent } from './components/auth/login/login.component';
 import { NurseViewComponent } from './components/nurse/nurse-view.component';
 import { SensorMockComponent } from './components/sensor-mock/sensor-mock.component';
+import { CallReportComponent } from './components/calls/call-report.component';
 
 export const routes: Routes = [
   { 
@@ -44,6 +45,12 @@ export const routes: Routes = [
     path: 'reports',
     loadComponent: () => 
       import('./components/reports/reports.component').then(m => m.ReportsComponent),
+    canActivate: [authGuard, ProfileGuard, RoleGuard],
+    data: { role: 'medecin' }
+  },
+  {
+    path: 'call-report',
+    component: CallReportComponent,
     canActivate: [authGuard, ProfileGuard, RoleGuard],
     data: { role: 'medecin' }
   },

@@ -11,6 +11,9 @@ import { take } from 'rxjs/operators';
 import { AuthService } from '../../services/auth/auth.service';
 import { SensorMockService, VitalSigns } from '../../services/sensor/sensor-mock.service';
 import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
+import { Router } from '@angular/router';
+import { CallReport } from '../../interfaces/call-report.interface';
+import { CallReportService } from '../../services/call-report.service';
 
 @Component({
   selector: 'app-call-interface',
@@ -58,7 +61,7 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
             </span>
           </div>
         </div>
-        
+
         <!-- Vitals Overlay -->
         <div class="vitals-overlay">
           <div class="warning-banner sensor-warning" *ngIf="!isSensorConnected">
@@ -154,7 +157,7 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
       font-size: 14px;
       line-height: 1.4;
     }
-    
+
     .call-container {
       height: 100vh;
       display: flex;
@@ -333,12 +336,12 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
 export class CallInterfaceComponent implements OnInit, OnDestroy {
   @ViewChild('localVideo') localVideo!: ElementRef<HTMLVideoElement>;
   @ViewChild('remoteVideo') remoteVideo!: ElementRef<HTMLVideoElement>;
-  
+
   // Déplacer ces déclarations dans le constructeur
   callState$: Observable<any>;
   remoteUserInfo$: Observable<any>;
   callDuration$: Observable<string>;
-  
+
   isDoctorView = false;
   showVideo = true;
 
@@ -353,9 +356,18 @@ export class CallInterfaceComponent implements OnInit, OnDestroy {
   lastVitalsUpdate: number = Date.now();
   vitalsCheckInterval?: any;
 
+  private callHistory = {
+    transcriptions: [] as string[],
+    vitals: [] as VitalSigns[],
+    startTime: Date.now(),
+    endTime: Date.now()
+  };
+
   constructor(
     private webRTCService: WebRTCService,
-    private authService: AuthService
+    private authService: AuthService,
+    private router: Router,
+    private callReportService: CallReportService
   ) {
     // Initialiser les observables dans le constructeur
     this.callState$ = this.webRTCService.callState$;
@@ -367,6 +379,7 @@ export class CallInterfaceComponent implements OnInit, OnDestroy {
       next: (data) => {
         const vitals = data as VitalSigns;
         this.currentVitals = vitals;
+        this.callHistory.vitals.push({...vitals, timestamp: Date.now()});
         this.isNormalScenario = vitals?.scenario === 'normal';
         this.isSensorConnected = true;
         this.isConnectionStable = true;
@@ -379,6 +392,13 @@ export class CallInterfaceComponent implements OnInit, OnDestroy {
       this.isSensorConnected = timeSinceLastUpdate < 5000;
       this.isConnectionStable = timeSinceLastUpdate < 1500;
     }, 300);
+
+    // Souscrire aux changements d'état
+    this.callState$.subscribe(state => {
+      if (state.transcription) {
+        this.callHistory.transcriptions.push(state.transcription);
+      }
+    });
   }
 
   ngOnInit(): void {
@@ -400,6 +420,14 @@ export class CallInterfaceComponent implements OnInit, OnDestroy {
       }
 
     });
+
+    // Clear call history
+    this.callHistory = {
+      transcriptions: [],
+      vitals: [],
+      startTime: Date.now(),
+      endTime: Date.now()
+    };
   }
 
   ngOnDestroy(): void {
@@ -416,7 +444,32 @@ export class CallInterfaceComponent implements OnInit, OnDestroy {
   }
 
   endCall(): void {
+    this.callHistory.endTime = Date.now();
+    
+    const report: CallReport = {
+      duration: (this.callHistory.endTime - this.callHistory.startTime) / 1000,
+      startTime: this.callHistory.startTime,
+      endTime: this.callHistory.endTime,
+      transcription: this.callHistory.transcriptions,
+      vitals: this.callHistory.vitals,
+      doctor: {
+        nom: 'Dr. DURAND',
+        prenom: 'Sophie'
+      },
+      nurse: {
+        nom: 'Inf. DUBOIS',
+        prenom: 'Michel'
+      }
+    };
+
+    // Sauvegarder le rapport dans le service
+    this.callReportService.setReport(report);
+    
+    // Terminer l'appel
     this.webRTCService.endCall();
+    
+    // Naviguer vers le rapport
+    this.router.navigate(['/call-report']);
   }
 
   formatDuration(startTime: Date | null): string {
