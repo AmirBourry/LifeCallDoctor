@@ -25,8 +25,8 @@ import { Observable } from 'rxjs';
   template: `
     <div class="sidebar">
       <div class="logo-section">
-        <h1 class="app-title">TéléConsult</h1>
-        <p class="app-subtitle">Plateforme de télémédecine</p>
+        <h1 class="app-title">LifeCall</h1>
+        <p class="app-subtitle">Plateforme de gestion d'interventions d'urgence</p>
       </div>
 
       <nav class="nav-menu">
@@ -253,7 +253,7 @@ export class SidebarComponent implements OnInit {
   menuItems = [
     {
       icon: 'video_call',
-      label: 'Téléconsultation',
+      label: 'LifeCall',
       route: '/calls'
     },
     {
