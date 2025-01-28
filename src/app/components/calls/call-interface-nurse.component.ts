@@ -70,7 +70,7 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
       <div class="transcription-container">
         <div class="transcription-header">
           <h3>Transcription</h3>
-          <button mat-icon-button (click)="toggleSpeechRecognition()" 
+          <button mat-icon-button (click)="toggleSpeechRecognition()"
                   [color]="isListening ? 'accent' : 'primary'">
             <mat-icon>{{isListening ? 'mic' : 'mic_off'}}</mat-icon>
           </button>
@@ -207,7 +207,7 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
 
     .transcription-container {
       position: absolute;
-      bottom: 100px;
+      bottom: 145px;
       left: 20px;
       width: 300px;
       background: rgba(255, 255, 255, 0.95);
