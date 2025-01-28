@@ -6,7 +6,9 @@ import { MatRippleModule } from '@angular/material/core';
 import { MatBadgeModule } from '@angular/material/badge';
 import { WebRTCService } from '../../services/webrtc/webrtc.service';
 import { FlexModule } from '@ngbracket/ngx-layout';
-import { Subscription } from 'rxjs';
+import { Subscription, Observable } from 'rxjs';
+import { take } from 'rxjs/operators';
+import { AuthService } from '../../services/auth/auth.service';
 import { SensorMockService, VitalSigns } from '../../services/sensor/sensor-mock.service';
 import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
 
@@ -22,34 +24,25 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
     FlexModule
   ],
   template: `
-    <div class="call-container" *ngIf="webRTCService.callState$ | async as callState">
-      <div class="video-container">
-        <!-- Remote Video -->
-        <div class="remote-video-container">
-          <video #remoteVideo
-                 class="remote-video"
-                 [class.audio-only]="callState.isAudioOnly"
-                 [class.hidden]="!callState.remoteStream"
-                 [srcObject]="callState.remoteStream"
-                 autoplay
-                 playsinline>
-          </video>
-          <div class="speaking-indicator" *ngIf="callState.isRemoteSpeaking">
-            <mat-icon>mic</mat-icon>
-          </div>
-        </div>
-
-        <!-- Local Video -->
-        <video #localVideo
-               class="local-video"
-               [class.hidden]="callState.isCameraOff || !callState.localStream"
-               autoplay
-               playsinline
-               muted>
+    <div class="call-container" [class.doctor-view]="isDoctorView">
+      <div class="video-container" *ngIf="showVideo">
+        <video #remoteVideo autoplay playsinline
+               [class.speaking]="(callState$ | async)?.isRemoteSpeaking">
         </video>
+        <div class="audio-indicator"
+             [class.speaking]="(callState$ | async)?.isRemoteSpeaking">
+          <mat-icon>{{(callState$ | async)?.isRemoteSpeaking ? 'volume_up' : 'volume_off'}}</mat-icon>
+          <span>{{(callState$ | async)?.isRemoteSpeaking ? 'En train de parler' : 'Silencieux'}}</span>
+        </div>
+      </div>
+
+      <div class="controls-container">
+        <div class="call-info">
+          <h2>En appel avec {{(remoteUserInfo$ | async)?.name}}</h2>
+          <span class="duration">{{callDuration$ | async}}</span>
 
         <!-- Audio Only Placeholder -->
-        <div class="audio-only-placeholder" 
+        <div class="audio-only-placeholder"
              *ngIf="callState.isAudioOnly || !callState.remoteStream">
           <mat-icon>account_circle</mat-icon>
           <h3>{{callState.remotePeerName || 'En attente de connexion...'}}</h3>
@@ -88,249 +81,122 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
           </div>
         </div>
 
-        <!-- Call Duration -->
-        <div class="call-duration">
-          {{formatDuration(callState.callStartTime)}}
+        <div class="call-controls">
+          <button mat-fab color="primary" (click)="toggleMute()"
+                  [class.muted]="(callState$ | async)?.isMuted">
+            <mat-icon>{{(callState$ | async)?.isMuted ? 'mic_off' : 'mic'}}</mat-icon>
+          </button>
+
+          <button mat-fab color="warn" (click)="endCall()">
+            <mat-icon>call_end</mat-icon>
+          </button>
         </div>
       </div>
 
-      <!-- Call Controls -->
-      <div class="call-controls">
-        <button mat-fab
-                [class.muted]="callState.isMuted"
-                (click)="webRTCService.toggleMute()">
-          <mat-icon>{{callState.isMuted ? 'mic_off' : 'mic'}}</mat-icon>
-        </button>
-
-        <button mat-fab
-                color="warn"
-                class="end-call-button"
-                (click)="webRTCService.endCall()">
-          <mat-icon>call_end</mat-icon>
-        </button>
-
-        <button mat-fab
-                [class.camera-off]="callState.isCameraOff"
-                (click)="webRTCService.toggleCamera()">
-          <mat-icon>{{callState.isCameraOff ? 'videocam_off' : 'videocam'}}</mat-icon>
-        </button>
-
-        <button mat-fab
-                [class.audio-only]="callState.isAudioOnly"
-                (click)="webRTCService.toggleAudioOnly()">
-          <mat-icon>{{callState.isAudioOnly ? 'mic' : 'connected_video'}}</mat-icon>
-        </button>
+      <div class="speaking-indicator" *ngIf="callState$ | async as state">
+        <ng-container *ngIf="state.isLocalSpeaking || state.isRemoteSpeaking">
+          <mat-icon>volume_up</mat-icon>
+          <span>{{ state.isLocalSpeaking ? 'Vous parlez' :
+                 (state.speakingUserName + ' parle') }}</span>
+        </ng-container>
       </div>
     </div>
   `,
   styles: [`
     .call-container {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
       height: 100vh;
-      background-color: #1D192B;
-      z-index: 1000;
       display: flex;
       flex-direction: column;
+      background: #1a1a1a;
+      color: white;
     }
 
     .video-container {
-      position: relative;
       flex: 1;
-      background-color: #000;
+      position: relative;
+      background: #000;
       overflow: hidden;
     }
 
-    .remote-video-container {
-      position: relative;
-      flex: 1;
-      background-color: #000;
-      overflow: hidden;
-    }
-
-    .remote-video {
+    video {
       width: 100%;
       height: 100%;
       object-fit: cover;
-      transition: opacity 0.3s ease;
+      transition: box-shadow 0.3s ease;
     }
 
-    .local-video {
+    video.speaking {
+      box-shadow: 0 0 20px rgba(76, 175, 80, 0.5);
+    }
+
+    .audio-indicator {
       position: absolute;
-      top: 20px;
-      right: 20px;
-      width: 240px;
-      height: 135px;
-      border-radius: 12px;
-      border: 2px solid rgba(255,255,255,0.2);
-      object-fit: cover;
+      top: 1rem;
+      right: 1rem;
+      display: flex;
+      align-items: center;
+      padding: 0.5rem 1rem;
+      background: rgba(0, 0, 0, 0.7);
+      border-radius: 2rem;
       transition: all 0.3s ease;
-      z-index: 10;
     }
 
-    .local-video.hidden {
-      opacity: 0;
-      transform: scale(0.8);
+    .audio-indicator.speaking {
+      background: rgba(76, 175, 80, 0.7);
     }
 
-    .audio-only-placeholder {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
+    .audio-indicator mat-icon {
+      margin-right: 0.5rem;
+    }
+
+    .controls-container {
+      padding: 1rem;
+      background: rgba(0, 0, 0, 0.8);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .call-info {
       text-align: center;
-      color: white;
-      z-index: 5;
     }
 
-    .audio-only-placeholder mat-icon {
-      font-size: 120px;
-      height: 120px;
-      width: 120px;
+    .call-info h2 {
+      margin: 0;
+      font-size: 1.2rem;
+    }
+
+    .duration {
+      font-size: 0.9rem;
       opacity: 0.8;
-    }
-
-    .audio-only-placeholder h3 {
-      margin: 20px 0;
-      font-size: 24px;
-    }
-
-    .audio-wave {
-      display: flex;
-      gap: 4px;
-      justify-content: center;
-      align-items: center;
-      height: 40px;
-    }
-
-    .wave-bar {
-      width: 4px;
-      background-color: rgba(255,255,255,0.6);
-      border-radius: 2px;
-      animation: wave 1s ease-in-out infinite;
-    }
-
-    .wave-bar:nth-child(1) { animation-delay: 0.0s; height: 60%; }
-    .wave-bar:nth-child(2) { animation-delay: 0.1s; height: 80%; }
-    .wave-bar:nth-child(3) { animation-delay: 0.2s; height: 100%; }
-    .wave-bar:nth-child(4) { animation-delay: 0.3s; height: 80%; }
-    .wave-bar:nth-child(5) { animation-delay: 0.4s; height: 60%; }
-
-    @keyframes wave {
-      0%, 100% { transform: scaleY(1); }
-      50% { transform: scaleY(0.5); }
-    }
-
-    .vitals-overlay {
-      position: absolute;
-      top: 20px;
-      left: 20px;
-      display: flex;
-      gap: 16px;
-      padding: 12px;
-      background: rgba(0,0,0,0.6);
-      backdrop-filter: blur(8px);
-      border-radius: 12px;
-    }
-
-    .vital-sign {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      color: white;
-    }
-
-    .vital-sign .label {
-      font-size: 12px;
-      opacity: 0.8;
-    }
-
-    .vital-sign .value {
-      font-size: 18px;
-      font-weight: 500;
-      margin-top: 4px;
-    }
-
-    .call-duration {
-      position: absolute;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      color: white;
-      background: rgba(0,0,0,0.6);
-      backdrop-filter: blur(8px);
-      padding: 8px 16px;
-      border-radius: 20px;
-      font-size: 14px;
     }
 
     .call-controls {
-      position: absolute;
-      bottom: 40px;
-      left: 50%;
-      transform: translateX(-50%);
       display: flex;
-      gap: 24px;
-      padding: 16px;
-      background: rgba(0,0,0,0.6);
-      backdrop-filter: blur(8px);
-      border-radius: 32px;
+      gap: 1rem;
     }
 
-    .mat-fab {
-      background-color: rgba(255,255,255,0.2);
-      transition: all 0.3s ease;
-    }
-
-    .mat-fab:hover {
-      transform: scale(1.1);
-    }
-
-    .mat-fab.muted {
+    button.muted {
       background-color: #f44336;
-    }
-
-    .mat-fab.camera-off {
-      background-color: #f44336;
-    }
-
-    .mat-fab.audio-only {
-      background-color: #2196f3;
-    }
-
-    .end-call-button {
-      transform: scale(1.2);
-    }
-
-    .end-call-button:hover {
-      transform: scale(1.3);
-      background-color: #d32f2f !important;
-    }
-
-    .hidden {
-      display: none;
     }
 
     .speaking-indicator {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background-color: rgba(0, 0, 0, 0.5);
-      padding: 5px;
-      border-radius: 50%;
-      color: white;
+      position: fixed;
+      top: 1rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.8);
+      padding: 0.5rem 1rem;
+      border-radius: 2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      z-index: 1000;
+      transition: opacity 0.3s ease;
     }
 
     .speaking-indicator mat-icon {
-      animation: pulse 1s infinite;
-    }
-
-    @keyframes pulse {
-      0% { transform: scale(1); }
-      50% { transform: scale(1.2); }
-      100% { transform: scale(1); }
+      color: #4CAF50;
     }
 
     .vital-sign.warning {
@@ -373,6 +239,14 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
 export class CallInterfaceComponent implements OnInit, OnDestroy {
   @ViewChild('localVideo') localVideo!: ElementRef<HTMLVideoElement>;
   @ViewChild('remoteVideo') remoteVideo!: ElementRef<HTMLVideoElement>;
+
+  callState$!: Observable<any>;
+  remoteUserInfo$!: Observable<any>;
+  callDuration$!: Observable<string>;
+
+  isDoctorView = false;
+  showVideo = true;
+
   private callStateSubscription?: Subscription;
   private socket$: WebSocketSubject<any>;
 
@@ -383,6 +257,10 @@ export class CallInterfaceComponent implements OnInit, OnDestroy {
   lastVitalsUpdate: number = Date.now();
   vitalsCheckInterval?: any;
 
+  constructor(
+    private webRTCService: WebRTCService,
+    private authService: AuthService
+  ) {}
   constructor(public webRTCService: WebRTCService) {
     this.socket$ = webSocket('wss://websocket.chhilif.com/ws');
       this.socket$.subscribe({
@@ -394,7 +272,7 @@ export class CallInterfaceComponent implements OnInit, OnDestroy {
           this.lastVitalsUpdate = Date.now();
         }
       });
-      
+
       this.vitalsCheckInterval = setInterval(() => {
         const timeSinceLastUpdate = Date.now() - this.lastVitalsUpdate;
         this.isSensorConnected = timeSinceLastUpdate < 5000;
@@ -403,33 +281,45 @@ export class CallInterfaceComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     console.log('CallInterfaceComponent initialized');
-    this.callStateSubscription = this.webRTCService.callState$.subscribe(state => {
+
+    // Initialiser les observables
+    this.callState$ = this.webRTCService.callState$;
+    this.remoteUserInfo$ = this.webRTCService.getRemoteUserInfo$();
+    this.callDuration$ = this.webRTCService.getCallDuration$();
+
+    // Déterminer le rôle de l'utilisateur
+    this.authService.user$.pipe(take(1)).subscribe(user => {
+      this.isDoctorView = user?.role === 'medecin';
+      this.showVideo = this.isDoctorView;
+    });
+
+    // S'abonner aux changements d'état
+    this.callStateSubscription = this.callState$.subscribe(state => {
       console.log('Call state updated:', state);
-      
-      if (this.localVideo?.nativeElement && state.localStream) {
-        console.log('Setting local video stream');
-        this.localVideo.nativeElement.srcObject = state.localStream;
-      }
-      
+
       if (this.remoteVideo?.nativeElement && state.remoteStream) {
         console.log('Setting remote video stream');
         this.remoteVideo.nativeElement.srcObject = state.remoteStream;
       }
-    
+
     });
   }
 
   ngOnDestroy(): void {
     console.log('CallInterfaceComponent destroyed');
     this.callStateSubscription?.unsubscribe();
-    
-    // Nettoyer les flux vidéo
-    if (this.localVideo?.nativeElement) {
-      this.localVideo.nativeElement.srcObject = null;
-    }
+
     if (this.remoteVideo?.nativeElement) {
       this.remoteVideo.nativeElement.srcObject = null;
     }
+  }
+
+  toggleMute(): void {
+    this.webRTCService.toggleMute();
+  }
+
+  endCall(): void {
+    this.webRTCService.endCall();
   }
 
   formatDuration(startTime: Date | null): string {

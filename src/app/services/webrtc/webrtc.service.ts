@@ -38,6 +38,9 @@ export interface CallState {
   remotePeerName: string | null;
   callStartTime: Date | null;
   isRemoteSpeaking: boolean;
+  isLocalSpeaking: boolean;
+  speakingUserName: string | null;
+  localUserName: string | null;
 }
 
 export interface IncomingCall {
@@ -93,7 +96,10 @@ export class WebRTCService {
     isAudioOnly: false,
     remotePeerName: null,
     callStartTime: null,
-    isRemoteSpeaking: false
+    isRemoteSpeaking: false,
+    isLocalSpeaking: false,
+    speakingUserName: null,
+    localUserName: null
   });
 
   readonly callState$ = this.callStateSubject.asObservable();
@@ -103,14 +109,31 @@ export class WebRTCService {
       {
         urls: [
           'stun:stun.l.google.com:19302',
-          'stun:stun1.l.google.com:19302'
+          'stun:stun1.l.google.com:19302',
+          'stun:stun2.l.google.com:19302',
+          'stun:stun3.l.google.com:19302',
+          'stun:stun4.l.google.com:19302'
         ]
+      },
+      // Ajout de serveurs TURN publics gratuits pour le développement
+      {
+        urls: 'turn:numb.viagenie.ca',
+        username: 'webrtc@live.com',
+        credential: 'muazkh'
+      },
+      {
+        urls: [
+          'turn:192.158.29.39:3478?transport=udp',
+          'turn:192.158.29.39:3478?transport=tcp'
+        ],
+        credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=',
+        username: '28224511:1379330808'
       }
     ],
     iceCandidatePoolSize: 10,
-    iceTransportPolicy: 'all',
     bundlePolicy: 'max-bundle',
-    rtcpMuxPolicy: 'require'
+    rtcpMuxPolicy: 'require',
+    iceTransportPolicy: 'all'
   };
 
   private incomingCallSubject = new BehaviorSubject<IncomingCall | null>(null);
@@ -156,7 +179,10 @@ export class WebRTCService {
       isAudioOnly: false,
       remotePeerName: null,
       callStartTime: null,
-      isRemoteSpeaking: false
+      isRemoteSpeaking: false,
+      isLocalSpeaking: false,
+      speakingUserName: null,
+      localUserName: null
     });
     this.incomingCallSubject.next(null);
   }
@@ -179,7 +205,7 @@ export class WebRTCService {
             console.log('Personnel data for', doc.id, ':', personnelData);
             
             return {
-              id: doc.id,
+          id: doc.id,
               name: personnelData['name'] || '',
               role: personnelData['role'] as 'medecin' | 'infirmier',
               nom: personnelData['nom'] || '',
@@ -265,36 +291,57 @@ export class WebRTCService {
     }
   }
 
-  private async getLocalStream(): Promise<MediaStream> {
+  private async getLocalStream(isNurse: boolean): Promise<MediaStream> {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 640, max: 1280 },
-          height: { ideal: 480, max: 720 },
-          frameRate: { ideal: 24, max: 30 },
-          facingMode: 'user'
-        },
+      const user = await this.authService.user$.pipe(take(1)).toPromise();
+      const constraints = {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 22050
+        },
+        video: isNurse ? {
+          width: { ideal: 640, max: 854 },
+          height: { ideal: 480, max: 480 },
+          frameRate: { ideal: 15, max: 20 },
+          aspectRatio: 1.333333,
+          facingMode: 'user'
+        } : false
+      };
 
-      // Vérifier que les tracks sont bien activés
-      stream.getTracks().forEach(track => {
-        console.log(`Track ${track.kind} enabled:`, track.enabled);
-        track.enabled = true;
-      });
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      
+      // Appliquer des optimisations supplémentaires aux pistes vidéo
+      if (isNurse) {
+        stream.getVideoTracks().forEach(track => {
+          if ('contentHint' in track) {
+            track.contentHint = 'motion';
+          }
+          // Appliquer des contraintes supplémentaires si possible
+          const capabilities = track.getCapabilities();
+          if (capabilities) {
+            track.applyConstraints({
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              frameRate: { ideal: 15 }
+            }).catch(console.error);
+          }
+        });
+      }
+
+      console.log(`Local stream obtained for ${isNurse ? 'nurse' : 'doctor'}:`, 
+        stream.getTracks().map(t => ({
+          kind: t.kind,
+          settings: t.getSettings()
+        }))
+      );
 
       return stream;
-    } catch (error: unknown) {
+    } catch (error) {
       console.error('Error accessing media devices:', error);
-      throw new Error(
-        `Impossible d'accéder aux périphériques média: ${
-          error instanceof Error ? error.message : 'Erreur inconnue'
-        }`
-      );
+      throw error;
     }
   }
 
@@ -314,10 +361,12 @@ export class WebRTCService {
         width: '400px'
       });
 
-      // Gérer la fermeture du dialogue (annulation de l'appel)
-      this.activeDialog.afterClosed().subscribe(async (result) => {
-        if (!result) {
-          await this.cancelCall(targetUserId);
+      // Fermer le dialogue quand l'appel est accepté
+      const callStateSubscription = this.callState$.subscribe(state => {
+        if (state.isInCall) {
+          this.closeActiveDialog();
+          this.startCallTimer();
+          callStateSubscription.unsubscribe();
         }
       });
 
@@ -397,46 +446,78 @@ export class WebRTCService {
     }
   }
 
-  private async initializePeerConnection(localStream: MediaStream): Promise<void> {
-    if (this.peerConnection) {
-      console.log('Closing existing peer connection');
-      this.peerConnection.close();
-    }
+  private async initializePeerConnection(localStream: MediaStream, isNurse: boolean): Promise<void> {
+    try {
+      const user = await this.authService.user$.pipe(take(1)).toPromise();
+      if (!user) throw new Error('User not authenticated');
 
-    console.log('Initializing new peer connection');
-    this.peerConnection = new RTCPeerConnection({
-      ...this.configuration,
-      iceCandidatePoolSize: 0
-    });
-
-    // Configurer les événements avant d'ajouter les tracks
-    this.setupPeerConnectionEvents();
-
-    // Ajouter les tracks une seule fois
-    console.log('Adding tracks to peer connection');
-    localStream.getTracks().forEach(track => {
-      try {
-        if (track.kind === 'audio') {
-          console.log('Adding audio track');
-          const sender = this.peerConnection!.addTrack(track, localStream);
-          this.configureAudioTrack(sender);
-        } else if (track.kind === 'video') {
-          console.log('Adding video track');
-          const sender = this.peerConnection!.addTrack(track, localStream);
-          this.configureVideoTrack(sender);
-        }
-      } catch (error) {
-        console.error(`Error adding ${track.kind} track:`, error);
+      if (this.peerConnection) {
+        console.log('Closing existing peer connection');
+        this.peerConnection.close();
       }
-    });
 
-    // Mettre à jour l'état
-    this.updateCallState({
-      localStream,
-      isInCall: true
-    });
+      console.log('Initializing new peer connection');
+    this.peerConnection = new RTCPeerConnection(this.configuration);
 
-    console.log('Peer connection initialization completed');
+      // Ajouter les événements de débogage
+      this.peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log('New ICE candidate:', {
+            type: event.candidate.type,
+            protocol: event.candidate.protocol,
+            address: event.candidate.address,
+            port: event.candidate.port,
+            candidate: event.candidate.candidate
+          });
+          this.handleLocalIceCandidate(event.candidate);
+        }
+      };
+
+      this.peerConnection.onconnectionstatechange = () => {
+        console.log('Connection state changed:', {
+          connectionState: this.peerConnection?.connectionState,
+          iceConnectionState: this.peerConnection?.iceConnectionState,
+          iceGatheringState: this.peerConnection?.iceGatheringState
+        });
+      };
+
+      this.peerConnection.ontrack = (event) => {
+        console.log('Received track:', {
+          kind: event.track.kind,
+          enabled: event.track.enabled,
+          readyState: event.track.readyState
+        });
+        if (event.streams && event.streams[0]) {
+          this.updateCallState({ remoteStream: event.streams[0] });
+        }
+      };
+
+      // Ajouter les tracks avec configuration d'encodage
+      localStream.getTracks().forEach(track => {
+        if (track.kind === 'audio' || (isNurse && track.kind === 'video')) {
+          const sender = this.peerConnection!.addTrack(track, localStream);
+          if (track.kind === 'video') {
+            this.configureVideoEncoding(sender);
+          }
+        }
+      });
+
+      // Mettre à jour l'état avec le nom de l'utilisateur local
+      this.updateCallState({
+        localStream,
+        isInCall: true,
+        isAudioOnly: !isNurse,
+        localUserName: `${user?.nom} ${user?.prenom}`
+      });
+
+      // Initialiser le canal de données avant l'analyseur audio
+      this.initializeDataChannel();
+      this.setupAudioAnalyzer(localStream);
+
+    } catch (error) {
+      console.error('Error in initializePeerConnection:', error);
+      throw error;
+    }
   }
 
   private configureAudioTrack(sender: RTCRtpSender): void {
@@ -507,32 +588,117 @@ export class WebRTCService {
     }
   }
 
+  private configureVideoEncoding(sender: RTCRtpSender): void {
+    if ('getParameters' in sender) {
+      const parameters = sender.getParameters();
+      if (!parameters.encodings) {
+        parameters.encodings = [{}];
+      }
+
+      // Configurer les paramètres d'encodage
+      parameters.encodings[0] = {
+        ...parameters.encodings[0],
+        maxBitrate: 500000,
+        maxFramerate: 20,
+        scaleResolutionDownBy: 1.0,
+        priority: 'high'
+      };
+
+      // Appliquer les paramètres
+      sender.setParameters(parameters).catch(console.error);
+    }
+  }
+
   private setupAudioAnalyzer(stream: MediaStream): void {
     const audioContext = new AudioContext();
     const analyser = audioContext.createAnalyser();
     const microphone = audioContext.createMediaStreamSource(stream);
     microphone.connect(analyser);
     analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.5;
     
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
     
     const checkAudioLevel = () => {
       if (!this.callStateSubject.value.isInCall) return;
-      
+
       analyser.getByteFrequencyData(dataArray);
       const average = dataArray.reduce((a, b) => a + b) / bufferLength;
+      const isSpeaking = average > 25; // Seuil plus sensible
       
-      const isSpeaking = average > 30; // Ajuster ce seuil selon vos besoins
-      
-      if (this.callStateSubject.value.isRemoteSpeaking !== isSpeaking) {
-        this.updateCallState({ isRemoteSpeaking: isSpeaking });
+      const currentState = this.callStateSubject.value;
+      if (currentState.isLocalSpeaking !== isSpeaking) {
+        console.log('Local speaking state changed:', isSpeaking);
+        
+        this.callStateSubject.next({
+          ...currentState,
+          isLocalSpeaking: isSpeaking,
+          speakingUserName: isSpeaking ? currentState.localUserName : null
+        });
+
+        // Envoyer l'état via le canal de données
+        if (this.dataChannel?.readyState === 'open') {
+          this.dataChannel.send(JSON.stringify({
+            type: 'speaking',
+            isSpeaking,
+            speakerName: currentState.localUserName
+          }));
+        }
       }
-      
-      requestAnimationFrame(checkAudioLevel);
     };
-    
-    checkAudioLevel();
+
+    const intervalId = setInterval(checkAudioLevel, 100);
+
+    // Nettoyer l'intervalle quand l'appel se termine
+    this.callState$.subscribe(state => {
+      if (!state.isInCall) {
+        clearInterval(intervalId);
+        audioContext.close();
+      }
+    });
+  }
+
+  private initializeDataChannel(): void {
+    if (!this.peerConnection) return;
+
+    try {
+      this.dataChannel = this.peerConnection.createDataChannel('audioStatus', {
+        ordered: true,
+        maxRetransmits: 3
+      });
+
+      const messageHandler = (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'speaking') {
+            console.log('Received speaking status:', data);
+            const currentState = this.callStateSubject.value;
+            this.callStateSubject.next({
+              ...currentState,
+              isRemoteSpeaking: data.isSpeaking,
+              speakingUserName: data.isSpeaking ? data.speakerName : null
+            });
+          }
+        } catch (error) {
+          console.error('Error processing data channel message:', error);
+        }
+      };
+
+      this.dataChannel.onopen = () => {
+        console.log('Data channel opened');
+      };
+      
+      this.dataChannel.onmessage = messageHandler;
+
+      this.peerConnection.ondatachannel = (event) => {
+        const receivedChannel = event.channel;
+        receivedChannel.onmessage = messageHandler;
+      };
+
+    } catch (error) {
+      console.error('Error initializing data channel:', error);
+    }
   }
 
   private setupPeerConnectionEvents(): void {
@@ -779,9 +945,9 @@ export class WebRTCService {
 
         case 'call-accepted':
           console.log('Call accepted by:', message.from);
-          if (!this.peerConnection) {
-            const localStream = await this.getLocalStream();
-            await this.initializePeerConnection(localStream);
+    if (!this.peerConnection) {
+            const localStream = await this.getLocalStream(user.role === 'infirmier');
+            await this.initializePeerConnection(localStream, user.role === 'infirmier');
             
             const offer = await this.peerConnection!.createOffer();
             await this.peerConnection!.setLocalDescription(offer);
@@ -802,8 +968,8 @@ export class WebRTCService {
         case 'offer':
           console.log('Received offer, current signaling state:', this.peerConnection?.signalingState);
     if (!this.peerConnection) {
-      const localStream = await this.getLocalStream();
-      await this.initializePeerConnection(localStream);
+      const localStream = await this.getLocalStream(user.role === 'infirmier');
+      await this.initializePeerConnection(localStream, user.role === 'infirmier');
     }
 
           if (message.sessionData.sdp && message.sessionData.type) {
@@ -1004,7 +1170,10 @@ export class WebRTCService {
         isAudioOnly: false,
         remotePeerName: null,
         callStartTime: null,
-        isRemoteSpeaking: false
+        isRemoteSpeaking: false,
+        isLocalSpeaking: false,
+        speakingUserName: null,
+        localUserName: null
       });
 
       await this.updateUserStatus('online');
@@ -1051,22 +1220,23 @@ export class WebRTCService {
 
   async acceptCall(sessionId: string, callerId: string): Promise<void> {
     try {
-      // S'assurer que le dialogue est fermé avant de continuer
+      // Fermer le dialogue actif avant d'établir l'appel
       this.closeActiveDialog();
-      this.incomingCallSubject.next(null); // Réinitialiser l'état d'appel entrant
-
+      
       const user = await this.authService.user$.pipe(take(1)).toPromise();
       if (!user) throw new Error('User not authenticated');
 
       console.log('Accepting call from:', callerId);
       this.currentSessionId = sessionId;
 
-      const localStream = await this.getLocalStream();
+      const localStream = await this.getLocalStream(user.role === 'infirmier');
       console.log('Local stream obtained:', localStream.getTracks().map(t => t.kind));
 
-      await this.initializePeerConnection(localStream);
-
+      await this.initializePeerConnection(localStream, user.role === 'infirmier');
       await this.updateUserStatus('in-call');
+
+      // Démarrer le timer dès que l'appel est accepté
+      this.startCallTimer();
 
       await this.sendSignalingMessage({
         type: 'call-accepted',
@@ -1084,8 +1254,6 @@ export class WebRTCService {
           clearInterval(checkInterval);
         }
       }, 1000);
-
-      this.startCallTimer();
 
     } catch (error) {
       console.error('Error accepting call:', error);
@@ -1325,5 +1493,25 @@ export class WebRTCService {
       this.activeDialog = null;
     }
   }
+
+  private checkConnectionQuality(): void {
+    if (!this.peerConnection) return;
+
+    setInterval(() => {
+      this.peerConnection!.getStats().then(stats => {
+        stats.forEach(report => {
+          if (report.type === 'inbound-rtp' && report.kind === 'video') {
+            console.log('Video stats:', {
+              framesDecoded: report.framesDecoded,
+              framesDropped: report.framesDropped,
+              frameWidth: report.frameWidth,
+              frameHeight: report.frameHeight
+            });
+          }
+        });
+      });
+    }, 3000);
+  }
 }
+
 
