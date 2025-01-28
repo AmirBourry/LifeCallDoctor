@@ -93,7 +93,7 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
     .call-controls {
       display: flex;
       gap: 1rem;
-      padding: 2rem;
+      padding: 2rem 2rem 6rem;
     }
 
     .vital-sign.warning {
@@ -105,15 +105,21 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
       text-align: center;
       color: white;
       font-weight: bold;
-      background: rgba(0,0,0,0.6);
+      background: rgba(0, 0, 0, 0.6);
       padding: 5px;
       border-radius: 12px;
     }
 
     @keyframes pulse {
-      0% { opacity: 1; }
-      50% { opacity: 0.5; }
-      100% { opacity: 1; }
+      0% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.5;
+      }
+      100% {
+        opacity: 1;
+      }
     }
 
     .sensor-warning {
@@ -140,7 +146,7 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
       display: flex;
       gap: 16px;
       padding: 12px;
-      background: rgba(0,0,0,0.6);
+      background: rgba(0, 0, 0, 0.6);
       backdrop-filter: blur(8px);
       border-radius: 12px;
     }
