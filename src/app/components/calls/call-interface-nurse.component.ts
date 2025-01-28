@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -65,6 +65,22 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
         <button mat-fab color="warn" (click)="endCall()">
           <mat-icon>call_end</mat-icon>
         </button>
+      </div>
+
+      <div class="transcription-container">
+        <div class="transcription-header">
+          <h3>Transcription</h3>
+          <button mat-icon-button (click)="toggleSpeechRecognition()" 
+                  [color]="isListening ? 'accent' : 'primary'">
+            <mat-icon>{{isListening ? 'mic' : 'mic_off'}}</mat-icon>
+          </button>
+        </div>
+        <div class="transcription-content" *ngIf="transcription">
+          {{ transcription }}
+        </div>
+        <div class="transcription-placeholder" *ngIf="!transcription">
+          Cliquez sur le microphone pour commencer la transcription...
+        </div>
       </div>
     </div>
   `,
@@ -188,9 +204,50 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
       border-radius: 12px;
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
+
+    .transcription-container {
+      position: absolute;
+      bottom: 100px;
+      left: 20px;
+      width: 300px;
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      backdrop-filter: blur(8px);
+    }
+
+    .transcription-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .transcription-header h3 {
+      margin: 0;
+      color: #333;
+    }
+
+    .transcription-content {
+      max-height: 200px;
+      overflow-y: auto;
+      padding: 8px;
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 8px;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .transcription-placeholder {
+      color: #666;
+      font-style: italic;
+      text-align: center;
+      padding: 16px;
+    }
   `]
 })
-export class CallInterfaceNurseComponent implements OnInit {
+export class CallInterfaceNurseComponent implements OnInit, OnDestroy {
   callState$: Observable<any>;
   remoteUserInfo$: Observable<RemoteUserInfo | null>;
   callDuration$: Observable<string>;
@@ -204,6 +261,12 @@ export class CallInterfaceNurseComponent implements OnInit {
   isConnectionStable: boolean = true;
   lastVitalsUpdate: number = Date.now();
   vitalsCheckInterval?: any;
+
+  private recognition: any;
+  transcription: string = '';
+  isListening: boolean = false;
+  private transcriptionHistory: string[] = [];
+  private lastSentTranscription: string = '';
 
   constructor(private webRTCService: WebRTCService) {
     this.callState$ = this.webRTCService.callState$;
@@ -227,6 +290,38 @@ export class CallInterfaceNurseComponent implements OnInit {
       this.isSensorConnected = timeSinceLastUpdate < 5000;
       this.isConnectionStable = timeSinceLastUpdate < 1500;
     }, 300);
+
+    // Initialisation de la reconnaissance vocale
+    if ('webkitSpeechRecognition' in window) {
+      this.recognition = new (window as any).webkitSpeechRecognition();
+      this.recognition.continuous = true;
+      this.recognition.interimResults = true;
+      this.recognition.lang = 'fr-FR';
+
+      this.recognition.onresult = (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript + ' ';
+            this.transcriptionHistory.push(transcript.trim());
+            // Envoyer la transcription via WebRTC
+            this.webRTCService.sendTranscription(transcript.trim());
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        this.transcription = finalTranscript + interimTranscript;
+      };
+
+      this.recognition.onerror = (event: any) => {
+        console.error('Erreur de reconnaissance vocale:', event.error);
+        this.isListening = false;
+      };
+    }
   }
 
   getScenarioLabel(scenario: string): string {
@@ -249,5 +344,21 @@ export class CallInterfaceNurseComponent implements OnInit {
 
   endCall() {
     this.webRTCService.endCall();
+  }
+
+  toggleSpeechRecognition(): void {
+    if (this.isListening) {
+      this.recognition.stop();
+      this.isListening = false;
+    } else {
+      this.recognition.start();
+      this.isListening = true;
+    }
+  }
+
+  ngOnDestroy() {
+    if (this.recognition) {
+      this.recognition.stop();
+    }
   }
 }

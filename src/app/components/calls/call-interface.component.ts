@@ -96,6 +96,13 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
           }
         </div>
 
+        <div class="transcription-overlay" *ngIf="(callState$ | async)?.transcription">
+          <div class="transcription-content">
+            <h3>Transcription de l'infirmier :</h3>
+            <p>{{ (callState$ | async)?.transcription }}</p>
+          </div>
+        </div>
+
         <div class="call-controls">
           <button mat-fab color="primary" (click)="toggleMute()"
                   [class.muted]="(callState$ | async)?.isMuted">
@@ -118,6 +125,36 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
     </div>
   `,
   styles: [`
+  .transcription-overlay {
+      position: absolute;
+      bottom: 100px;
+      right: 20px;
+      width: 300px;
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      backdrop-filter: blur(8px);
+    }
+
+    .transcription-content {
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .transcription-content h3 {
+      margin: 0 0 8px 0;
+      color: #333;
+      font-size: 16px;
+    }
+
+    .transcription-content p {
+      margin: 0;
+      color: #666;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    
     .call-container {
       height: 100vh;
       display: flex;

@@ -41,6 +41,7 @@ export interface CallState {
   isLocalSpeaking: boolean;
   speakingUserName: string | null;
   localUserName: string | null;
+  transcription?: string;
 }
 
 export interface IncomingCall {
@@ -678,6 +679,13 @@ export class WebRTCService {
               ...currentState,
               isRemoteSpeaking: data.isSpeaking,
               speakingUserName: data.isSpeaking ? data.speakerName : null
+            });
+          } else if(data.type === 'transcription') {
+            console.log('Received transcription:', data);
+            const currentState = this.callStateSubject.value;
+            this.callStateSubject.next({
+              ...currentState,
+              transcription: data.text
             });
           }
         } catch (error) {
@@ -1511,6 +1519,26 @@ export class WebRTCService {
         });
       });
     }, 3000);
+  }
+
+  sendTranscription(text: string) {
+    if (this.dataChannel?.readyState === 'open') {
+      this.dataChannel.send(JSON.stringify({
+        type: 'transcription',
+        text: text,
+        timestamp: new Date().toISOString()
+      }));
+
+      console.log('Transcription sent:', text);
+      
+
+      // Mettre à jour l'état local
+      const currentState = this.callStateSubject.value;
+      this.callStateSubject.next({
+        ...currentState,
+        transcription: text
+      });
+    }
   }
 }
 
