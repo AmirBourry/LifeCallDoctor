@@ -5,23 +5,19 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatSliderModule } from '@angular/material/slider';
 import { MatSelectModule } from '@angular/material/select';
 import { FormsModule } from '@angular/forms';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { BaseChartDirective } from 'ng2-charts';
 import {
-  ChartConfiguration, 
-  ChartOptions, 
   Chart,
-  LinearScale,
-  CategoryScale,
-  PointElement,
-  LineElement,
-  LineController,
-  Filler,
-  Legend,
-  Title
+  ChartConfiguration,
+  ChartOptions as ChartJsOptions,
+  ChartType,
+  registerables
 } from 'chart.js';
 import { SensorMockService, VitalSigns, ScenarioType } from '../../services/sensor/sensor-mock.service';
 import { Subscription } from 'rxjs';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+
+Chart.register(...registerables);
 
 @Component({
   selector: 'app-sensor-mock',
@@ -66,7 +62,7 @@ export class SensorMockComponent implements OnInit, OnDestroy {
   };
 
   // Configuration des graphiques
-  chartOptions: ChartOptions = {
+  chartOptions: ChartJsOptions = {
     responsive: true,
     maintainAspectRatio: false,
     scales: {
@@ -136,18 +132,6 @@ export class SensorMockComponent implements OnInit, OnDestroy {
     private readonly sensorService: SensorMockService,
     private readonly cdr: ChangeDetectorRef
   ) {
-    // Enregistrer tous les composants nécessaires de Chart.js
-    Chart.register(
-      LinearScale,
-      CategoryScale,
-      PointElement,
-      LineElement,
-      LineController,
-      Filler,
-      Legend,
-      Title
-    );
-
     // Démarrer le scénario normal par défaut
     this.sensorService.setScenario('normal');
     

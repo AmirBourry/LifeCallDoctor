@@ -43,10 +43,10 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
 
         <!-- Audio Only Placeholder -->
         <div class="audio-only-placeholder"
-             *ngIf="callState.isAudioOnly || !callState.remoteStream">
+             *ngIf="(callState$ | async)?.isAudioOnly || !(callState$ | async)?.remoteStream">
           <mat-icon>account_circle</mat-icon>
-          <h3>{{callState.remotePeerName || 'En attente de connexion...'}}</h3>
-          <div class="audio-wave" *ngIf="callState.remoteStream">
+          <h3>{{(callState$ | async)?.remotePeerName || 'En attente de connexion...'}}</h3>
+          <div class="audio-wave" *ngIf="(callState$ | async)?.remoteStream">
             <div class="wave-bar" *ngFor="let i of [1,2,3,4,5]"></div>
           </div>
         </div>
@@ -239,11 +239,12 @@ import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
 export class CallInterfaceComponent implements OnInit, OnDestroy {
   @ViewChild('localVideo') localVideo!: ElementRef<HTMLVideoElement>;
   @ViewChild('remoteVideo') remoteVideo!: ElementRef<HTMLVideoElement>;
-
-  callState$!: Observable<any>;
-  remoteUserInfo$!: Observable<any>;
-  callDuration$!: Observable<string>;
-
+  
+  // Déplacer ces déclarations dans le constructeur
+  callState$: Observable<any>;
+  remoteUserInfo$: Observable<any>;
+  callDuration$: Observable<string>;
+  
   isDoctorView = false;
   showVideo = true;
 
@@ -260,32 +261,31 @@ export class CallInterfaceComponent implements OnInit, OnDestroy {
   constructor(
     private webRTCService: WebRTCService,
     private authService: AuthService
-  ) {}
-  constructor(public webRTCService: WebRTCService) {
-    this.socket$ = webSocket('wss://websocket.chhilif.com/ws');
-      this.socket$.subscribe({
-        next: (data) => {
-          const vitals = data as VitalSigns;
-          this.currentVitals = vitals;
-          this.isNormalScenario = vitals?.scenario === 'normal';
-          this.isSensorConnected = true;
-          this.lastVitalsUpdate = Date.now();
-        }
-      });
+  ) {
+    // Initialiser les observables dans le constructeur
+    this.callState$ = this.webRTCService.callState$;
+    this.remoteUserInfo$ = this.webRTCService.getRemoteUserInfo$();
+    this.callDuration$ = this.webRTCService.getCallDuration$();
 
-      this.vitalsCheckInterval = setInterval(() => {
-        const timeSinceLastUpdate = Date.now() - this.lastVitalsUpdate;
-        this.isSensorConnected = timeSinceLastUpdate < 5000;
-      }, 1000);
+    this.socket$ = webSocket('wss://websocket.chhilif.com/ws');
+    this.socket$.subscribe({
+      next: (data) => {
+        const vitals = data as VitalSigns;
+        this.currentVitals = vitals;
+        this.isNormalScenario = vitals?.scenario === 'normal';
+        this.isSensorConnected = true;
+        this.lastVitalsUpdate = Date.now();
+      }
+    });
+
+    this.vitalsCheckInterval = setInterval(() => {
+      const timeSinceLastUpdate = Date.now() - this.lastVitalsUpdate;
+      this.isSensorConnected = timeSinceLastUpdate < 5000;
+    }, 1000);
   }
 
   ngOnInit(): void {
     console.log('CallInterfaceComponent initialized');
-
-    // Initialiser les observables
-    this.callState$ = this.webRTCService.callState$;
-    this.remoteUserInfo$ = this.webRTCService.getRemoteUserInfo$();
-    this.callDuration$ = this.webRTCService.getCallDuration$();
 
     // Déterminer le rôle de l'utilisateur
     this.authService.user$.pipe(take(1)).subscribe(user => {
