@@ -1,59 +1,25 @@
 # LifeCallDoctor
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 19.0.4.
+Afin de lancer le projet, vous devez d'abord choisir de le lancer en local ou depuis notre hébergement en ligne.
 
-## Development server
 
-To start a local development server, run:
+## Accéder au projet : 
 
-```bash
-ng serve
-```
+Rendez vous à l'adresse : 
+https://cpcs-9cdae.web.app sur téléphone ou ordinateur (téléphone pour l'infirmier, ordinateur pour le médecin).
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+Une fois arrivé sur la page de connexion, vous pouvez vous connecter à votre profil en fonction de la personne que vous incarnez :
 
-## Code scaffolding
+Identifiants médecin : l'e-mail est : sophie.durand@gmail.com et le mot de passe est : adminn
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+Identifiants infirmier :  l'e-mail est : michel.dubois@gmail.com et le mot de passe est : adminn
 
-```bash
-ng generate component component-name
-```
+Vous êtes sur l'application, vous pouvez désormais l'utiliser et tester notre scénario sur celle-ci !
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+Pour lancer le simulateur du capteur multiparamétrique, avec ses différents scénarios, rendez-vous sur : https://cpcs-9cdae.web.app/sensors
 
-```bash
-ng generate --help
-```
+## Accéder au projet en local :
 
-## Building
+Vous devez lancer la commande npm install après avoir cloner le projet dans un dossier. La commande doit être lancée dans le dossier crée.
 
-To build the project run:
-
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Karma](https://karma-runner.github.io) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+Vous devez ensuite lancer la commande ng serve afin de lancer le projet, remplacez https://cpcs-9cdae.web.app par https://localhost:4200 dans les consignes précédentes pour utiliser l'application.
