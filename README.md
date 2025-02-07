@@ -20,6 +20,6 @@ Pour lancer le simulateur du capteur multiparamétrique, avec ses différents sc
 
 ## Accéder au projet en local :
 
-Vous devez lancer la commande npm install après avoir cloner le projet dans un dossier. La commande doit être lancée dans le dossier crée.
+Vous devez lancer la commande npm install après avoir cloné le projet dans un dossier. La commande doit être lancée dans le dossier crée.
 
 Vous devez ensuite lancer la commande ng serve afin de lancer le projet, remplacez https://cpcs-9cdae.web.app par https://localhost:4200 dans les consignes précédentes pour utiliser l'application.
